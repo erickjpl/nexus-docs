@@ -160,6 +160,29 @@ export class RegisterUserCommandMother {
 }
 ```
 
+#### `user-registered.event-mother.ts`
+* **Nivel:** **[ESTRICTO]**
+
+```typescript
+// libs/users/testing/src/mother/user-registered.event-mother.ts
+import { UserRegisteredDomainEvent } from '@monorepo/users/domain';
+import { UuidMother } from '@monorepo/shared/testing';
+
+export class UserRegisteredEventMother {
+  static create(params?: Partial<{ id: string; name: string; email: string }>): UserRegisteredDomainEvent {
+    return new UserRegisteredDomainEvent({
+      aggregateId: params?.id ?? UuidMother.random(),
+      name: params?.name ?? 'John Doe',
+      email: params?.email ?? 'john@example.com',
+    });
+  }
+
+  static random(): UserRegisteredDomainEvent {
+    return this.create();
+  }
+}
+```
+
 ---
 
 ### 3.2 Bloque: `mocks/` (Mock Semántico del Repositorio)
@@ -254,6 +277,8 @@ describe('UserRegistrar', () => {
 });
 ```
 
+> **Nota sobre Jest vs Vitest:** Los ejemplos aquí utilizan `jest.fn()` para los mocks. Si el equipo utiliza Vitest, se debe reemplazar por `vi.fn()`. Es recomendable crear una abstracción agnóstica para el test runner (ej. un `MockFactory`) si el proyecto los combina en distintos entornos.
+
 ---
 
 ## 4. Barril de Exportación (`src/index.ts`)
@@ -265,6 +290,7 @@ export * from './mother/user-name.mother';
 export * from './mother/user-email.mother';
 export * from './mother/user.mother';
 export * from './mother/register-user.command-mother';
+export * from './mother/user-registered.event-mother';
 
 export * from './mocks/user.repository-mock';
 ```

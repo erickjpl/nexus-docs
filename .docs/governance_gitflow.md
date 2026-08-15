@@ -37,7 +37,7 @@ GitFlow organiza el trabajo dividiendo las ramas en **Eternas (Protegidas)** y *
       ▼                                       │ (Fijación de RC)      │
   develop ──────┬─────────────────┬───────────┴───────────────────────┴──>
                 │                 ▲
-                └── feature/#12 ──┘ (Se auto-elimina al mergear)
+                └── feature/12-register-user ──┘ (Se auto-elimina al mergear)
 ```
 
 ### 2.1 Ramas Principales (Eternas y Protegidas)
@@ -65,7 +65,7 @@ Toda rama temporal **debe auto-eliminarse** en GitLab al ser aprobada y mergeada
 | `bugfix/` | `bugfix/<id>-<kebab>` | `develop` | `develop` | Corrección de errores en desarrollo o QA. |
 | `refactor/`| `refactor/<id>-<kebab>` | `develop` | `develop` | Reestructuración de código sin alterar lógica. |
 | `release/` | `release/v<semver>` | `develop` | `main` y `develop` | Preparación de versión y estabilización de RC. |
-| `hotfix/` | `hotfix/<id>-<kebab>` | `main` | `main` y `develop` | Corrección crítica urgente de producción. |
+| `hotfix/` | `hotfix/<id>-<kebab>` | `main` | `main` y `develop` | Corrección crítica urgente de producción. Proceso de 2 pasos: 1. MR a `main`, aprobar y mergear. 2. MR a `develop` (o retro-merge de `main` a `develop`). Eliminar la rama de hotfix solo después de ambos merges. |
 
 ---
 
@@ -104,14 +104,14 @@ Closes #<id_issue>
 
 ### 3.3 Ejemplos de Commits Profesionales Atómicos
 
+> **Nota:** La directiva `Closes #<id>` va en la descripción del Merge Request y en el squash commit al mergear, no en cada commit atómico.
+
 ```text
 feat(users): implement register user command and handler
 
 - Add RegisterUserCommand DTO with primitive validations
 - Create UserRegistrar application service orchestrating domain
 - Connect CommandBus with RegisterUserCommandHandler
-
-Closes #42
 ```
 
 ```text
@@ -119,9 +119,29 @@ fix(users): validate email format before aggregate creation
 
 - Add regex invariant inside UserEmail value object
 - Throw InvalidArgumentError on malformed emails
-
-Closes #58
 ```
+
+---
+
+### 3.4 Controles Obligatorios Pre-Push (Pre-Push Verification Gates)
+
+Ningún desarrollador ni agente de IA puede realizar `git push` sin que pasen de forma exitosa los siguientes tres controles locales (configurados vía Husky en `.husky/pre-push`):
+
+1. **Linter Estricto:** `npx nx run-many -t lint` debe pasar sin errores, **sin variables no utilizadas** y **sin importaciones huérfanas**.
+2. **Chequeo de Tipos Estricto:** `npx nx run-many -t typecheck` debe pasar con cero errores de tipado.
+3. **Suite de Pruebas al 100%:** `npx nx run-many -t test` debe ejecutar y aprobar la totalidad de pruebas del módulo o proyecto.
+
+---
+
+### 3.5 Documentación Viva de APIs con Colección Bruno (`rest-client/api/`)
+
+Toda creación o modificación de un endpoint HTTP exige obligatoriamente:
+1. **Archivo `.bru` Dedicado:** Crear o actualizar el archivo correspondiente en el directorio de la colección (`rest-client/api/...`).
+2. **Sincronización con DTO (class-validator):** Si cambian los headers, query params o el body, el `.bru` debe actualizarse inmediatamente.
+3. **Bloque `docs` en Markdown Obligatorio:** Todo `.bru` debe incluir documentación Markdown que detalle:
+   - Propósito del endpoint.
+   - Permiso atómico requerido (`PermissionEnum.RESOURCE_ACTION`).
+   - Descripción de parámetros de entrada y respuestas esperadas.
 
 ---
 
@@ -143,6 +163,8 @@ excluyentes dentro de la misma categoría** (un Issue solo puede tener una prior
 ### 4.1 Categoría: `type::*` (Naturaleza del Trabajo)
 
 Define la intención técnica o funcional de la tarea:
+
+> **Nota:** Existe un mapeo entre etiquetas de GitLab y Conventional Commits: la etiqueta `type::hotfix` genera commits `fix(...)`, mientras que los commits `ci(...)` o `style(...)` se agrupan en issues `type::chore`.
 
 * `type::feature` (Color Verde): Nueva funcionalidad, caso de uso o endpoint.
 * `type::bug` (Color Rojo): Comportamiento anómalo o error que rompe funcionalidad existente.
@@ -294,7 +316,7 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - `shared`: Migración de repositorios base a TypeScript 5.x (#20).
 
 ### ⚠️ Breaking Changes
-- `api`: Reestructuración del formato de respuesta de errores de validación a estándar RFC 7807.
+- `api`: Reestructuración del formato de respuesta de errores de validación al estándar ApiResponse envelope.
 ```
 
 ---

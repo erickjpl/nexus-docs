@@ -144,7 +144,8 @@ o `nx lint`:
               "type:ui",
               "type:infra-client",
               "type:shared-infra-client",
-              "type:domain"
+              "type:domain",
+              "type:shared-domain"
             ]
           },
           {
@@ -153,7 +154,8 @@ o `nx lint`:
               "type:ui",
               "type:infra-client",
               "type:shared-infra-client",
-              "type:domain"
+              "type:domain",
+              "type:shared-domain"
             ]
           },
           {
@@ -162,7 +164,8 @@ o `nx lint`:
               "type:ui",
               "type:infra-client",
               "type:shared-infra-client",
-              "type:domain"
+              "type:domain",
+              "type:shared-domain"
             ]
           }
         ]
@@ -170,6 +173,30 @@ o `nx lint`:
     ]
   }
 }
+```
+
+También puedes utilizar el nuevo formato de Flat Config de ESLint (`eslint.config.js`):
+
+```typescript
+// eslint.config.js
+import { FlatCompat } from '@eslint/eslintrc';
+import nxPlugin from '@nx/eslint-plugin';
+
+const compat = new FlatCompat();
+
+export default [
+  ...compat.config({
+    extends: ['plugin:@nx/enforce-module-boundaries'],
+    rules: {
+      '@nx/enforce-module-boundaries': ['error', {
+        enforceBuildableLibDependency: true,
+        depConstraints: [
+          // ... mismas reglas que en el formato JSON
+        ],
+      }],
+    },
+  }),
+];
 ```
 
 ---
@@ -192,6 +219,8 @@ Para garantizar que un Bounded Context no importe directamente código de otro B
   "onlyDependOnLibsWithTags": ["scope:auth", "scope:shared"]
 }
 ```
+
+> **Nota:** Para evitar tener que registrar manualmente cada nuevo contexto, puedes utilizar variables en los tags de origen, definiendo una regla genérica basada en patrones como `*` (dependiendo de la versión de Nx) o asegurándote de que el generador añada automáticamente estas reglas al crear un nuevo contexto.
 
 > **Regla de Oro:** Si `billing` necesita datos de `users`, debe escuchar el evento de dominio `user.registered` o
 > consumir un endpoint público a través de un adaptador de infraestructura. **Jamás** puede hacer

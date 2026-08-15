@@ -77,26 +77,17 @@ export class AsyncStorageAdapter implements KeyValueStorage {
 
 ```tsx
 // apps/mobile/src/app/di/mobile-dependency-provider.tsx
-import React, { createContext, useContext, useMemo } from 'react';
-import { HttpClient, FetchHttpClient, KeyValueStorage } from '@monorepo/shared/infrastructure/client';
-import { UserRepository } from '@monorepo/users/domain';
+import React, { useMemo } from 'react';
+import { FetchHttpClient, RepositoryProvider } from '@monorepo/shared/infrastructure/client';
 import { HttpUserApiRepository } from '@monorepo/users/infrastructure/client';
 import { AsyncStorageAdapter } from './async-storage.adapter';
 
-export interface MobileDependencies {
-  httpClient: HttpClient;
-  storage: KeyValueStorage;
-  userRepository: UserRepository;
-}
-
-const MobileDependencyContext = createContext<MobileDependencies | null>(null);
-
 export const MobileDependencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const dependencies = useMemo<MobileDependencies>(() => {
+  const repositories = useMemo(() => {
     const apiUrl = 'https://api.tudominio.com/api';
 
     const storage = new AsyncStorageAdapter();
-    const httpClient = new FetchHttpClient(apiUrl);
+    const httpClient = new FetchHttpClient(apiUrl, () => storage.get('auth_token'));
     const userRepository = new HttpUserApiRepository(httpClient);
 
     return {
@@ -107,19 +98,11 @@ export const MobileDependencyProvider: React.FC<{ children: React.ReactNode }> =
   }, []);
 
   return (
-    <MobileDependencyContext.Provider value={dependencies}>
+    <RepositoryProvider repositories={repositories}>
       {children}
-    </MobileDependencyContext.Provider>
+    </RepositoryProvider>
   );
 };
-
-export function useMobileDependencies(): MobileDependencies {
-  const context = useContext(MobileDependencyContext);
-  if (!context) {
-    throw new Error('useMobileDependencies must be used within <MobileDependencyProvider>');
-  }
-  return context;
-}
 ```
 
 ---
@@ -132,43 +115,25 @@ export function useMobileDependencies(): MobileDependencies {
 ```tsx
 // apps/mobile/src/app/navigation/app-navigator.tsx
 import React from 'react';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Criteria } from '@monorepo/shared/domain';
-import { useMobileDependencies } from '../di/mobile-dependency-provider';
-import { RegisterUserContainer, UsersListContainer } from '@monorepo/users/ui';
+import { NativeStackScreenProps, createNativeStackNavigator } from '@react-navigation/native-stack';
+import { UsersPage } from '@monorepo/users/ui';
 
 export type RootStackParamList = {
   UsersList: undefined;
-  RegisterUser: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-function UsersListScreen() {
-  const { userRepository } = useMobileDependencies();
-  return (
-    <UsersListContainer
-      repository={userRepository}
-      initialCriteria={Criteria.empty()}
-    />
-  );
-}
+type UsersListScreenProps = NativeStackScreenProps<RootStackParamList, 'UsersList'>;
 
-function RegisterUserScreen({ navigation }: any) {
-  const { userRepository } = useMobileDependencies();
-  return (
-    <RegisterUserContainer
-      repository={userRepository}
-      onUserRegistered={() => navigation.goBack()}
-    />
-  );
+function UsersListScreen({ navigation }: UsersListScreenProps) {
+  return <UsersPage />;
 }
 
 export const AppNavigator: React.FC = () => {
   return (
     <Stack.Navigator initialRouteName="UsersList">
       <Stack.Screen name="UsersList" component={UsersListScreen} options={{ title: 'Usuarios' }} />
-      <Stack.Screen name="RegisterUser" component={RegisterUserScreen} options={{ title: 'Registrar Usuario' }} />
     </Stack.Navigator>
   );
 };
@@ -206,8 +171,13 @@ export const App: React.FC = () => {
 
 ```typescript
 // apps/mobile/src/index.ts
+import 'react-native-get-random-values';
 import { registerRootComponent } from 'expo';
 import { App } from './app/app';
 
 registerRootComponent(App);
 ```
+
+> **Nota sobre Polyfills:** React Native no implementa `crypto.getRandomValues()` por defecto, el cual es requerido por muchas implementaciones de UUID como `uuid` v4 que se usa en `@monorepo/shared/domain` para la generación de `UuidMother.random()`. Es obligatorio importar el polyfill antes que cualquier otra librería.
+
+> **Nota sobre UI Interop:** Los componentes de `libs/{context}/ui` que se reutilicen en React Native deben utilizar primitivas agnósticas (por ejemplo utilizando librerías como `react-native-web` o Tamagui) o tener implementaciones separadas por plataforma, dado que los elementos del DOM tradicional (como `<div>` o `<span>`) causarán errores en React Native.

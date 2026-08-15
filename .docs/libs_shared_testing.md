@@ -54,6 +54,9 @@ libs/shared/testing/
 * **Nivel:** **[ESTRICTO]**
 * **Por qué existe:** Encapsula la librería generadora de datos falsos (ej. `@faker-js/faker`).
 
+> [!NOTE]
+> Todos los ejemplos asumen el uso de `@faker-js/faker` versión 8 o superior.
+
 ```typescript
 import { faker } from '@faker-js/faker';
 
@@ -112,6 +115,43 @@ export class NumberMother {
 
   static positive(): number {
     return this.random(1, 999999);
+  }
+}
+```
+
+---
+
+#### `boolean.mother.ts` & `date.mother.ts`
+* **Nivel:** **[OPCIONAL]**
+
+```typescript
+// boolean.mother.ts
+import { faker } from '@faker-js/faker';
+
+export class BooleanMother {
+  static random(): boolean {
+    return faker.datatype.boolean();
+  }
+
+  static true(): boolean { return true; }
+  static false(): boolean { return false; }
+}
+```
+
+```typescript
+// date.mother.ts
+import { faker } from '@faker-js/faker';
+
+export class DateMother {
+  static random(): Date {
+    return faker.date.recent();
+  }
+
+  static past(): Date { return faker.date.past(); }
+  static future(): Date { return faker.date.future(); }
+
+  static randomIso(): string {
+    return DateMother.random().toISOString();
   }
 }
 ```
@@ -194,7 +234,8 @@ export class EventBusMock implements EventBus {
 
 ```typescript
 // command-bus.mock.ts
-import { Command, CommandBus } from '@monorepo/shared/domain';
+import { Command } from '@monorepo/shared/application';
+import { CommandBus } from '@monorepo/shared/domain';
 
 export class CommandBusMock implements CommandBus {
   private dispatchSpy = jest.fn();
@@ -209,7 +250,8 @@ export class CommandBusMock implements CommandBus {
 }
 
 // query-bus.mock.ts
-import { Query, QueryBus, Response } from '@monorepo/shared/domain';
+import { Query, Response } from '@monorepo/shared/application';
+import { QueryBus } from '@monorepo/shared/domain';
 
 export class QueryBusMock implements QueryBus {
   private response?: Response;

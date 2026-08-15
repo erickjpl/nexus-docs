@@ -186,6 +186,57 @@ export abstract class ValueObject<T extends Object | string | number | boolean> 
 
 ---
 
+#### `string.vo.ts` & `number.vo.ts`
+* **Nivel:** **[ESTRICTO]**
+
+```typescript
+// string.vo.ts
+import { InvalidArgumentError } from '../exceptions/invalid-argument.error';
+
+export abstract class StringValueObject {
+  constructor(readonly value: string) {
+    this.ensureIsNotEmpty(value);
+  }
+
+  private ensureIsNotEmpty(value: string): void {
+    if (value.trim().length === 0) {
+      throw new InvalidArgumentError(`${this.constructor.name} cannot be empty`);
+    }
+  }
+
+  toString(): string {
+    return this.value;
+  }
+
+  equals(other: StringValueObject): boolean {
+    return this.value === other.value;
+  }
+}
+```
+
+```typescript
+// number.vo.ts
+import { InvalidArgumentError } from '../exceptions/invalid-argument.error';
+
+export abstract class NumberValueObject {
+  constructor(readonly value: number) {
+    this.ensureIsValidNumber(value);
+  }
+
+  private ensureIsValidNumber(value: number): void {
+    if (!Number.isFinite(value)) {
+      throw new InvalidArgumentError(`${this.constructor.name} must be a finite number`);
+    }
+  }
+
+  equals(other: NumberValueObject): boolean {
+    return this.value === other.value;
+  }
+}
+```
+
+---
+
 #### `uuid.vo.ts`
 * **Nivel:** **[ESTRICTO]**
 * **Por qué existe:** Estandariza los identificadores únicos en todo el sistema.
@@ -220,6 +271,8 @@ export class Uuid extends ValueObject<string> {
   }
 }
 ```
+
+> **Nota de Portabilidad:** En entornos como React Native con Hermes, puede ser necesario incluir un polyfill para `crypto.randomUUID()` (ej. `react-native-get-random-values`).
 
 ---
 
@@ -277,6 +330,9 @@ export class DomainNotFoundError extends DomainException {}
 
 // domain-conflict.error.ts
 export class DomainConflictError extends DomainException {}
+
+// forbidden.exception.ts
+export class ForbiddenException extends DomainException {}
 ```
 
 ---
@@ -399,6 +455,18 @@ export class Filter {
 ```
 
 ```typescript
+// filter-field.ts
+export class FilterField {
+  constructor(readonly value: string) {}
+}
+
+// filter-value.ts
+export class FilterValue {
+  constructor(readonly value: string | number | boolean) {}
+}
+```
+
+```typescript
 // filters.ts
 export class Filters {
   constructor(readonly filters: Array<Filter>) {}
@@ -435,6 +503,57 @@ export class Criteria {
 }
 ```
 
+```typescript
+// order-type.ts
+export enum OrderTypes {
+  ASC = 'asc',
+  DESC = 'desc',
+  NONE = 'none',
+}
+
+export class OrderType {
+  constructor(readonly value: OrderTypes) {}
+
+  static asc(): OrderType { return new OrderType(OrderTypes.ASC); }
+  static desc(): OrderType { return new OrderType(OrderTypes.DESC); }
+  static none(): OrderType { return new OrderType(OrderTypes.NONE); }
+
+  isNone(): boolean { return this.value === OrderTypes.NONE; }
+}
+
+// order-by.ts
+export class OrderBy {
+  constructor(readonly value: string) {}
+}
+
+// order.ts
+import { OrderBy } from './order-by';
+import { OrderType, OrderTypes } from './order-type';
+
+export class Order {
+  constructor(
+    readonly orderBy: OrderBy,
+    readonly orderType: OrderType,
+  ) {}
+
+  static none(): Order {
+    return new Order(new OrderBy(''), OrderType.none());
+  }
+
+  static asc(orderBy: string): Order {
+    return new Order(new OrderBy(orderBy), OrderType.asc());
+  }
+
+  static desc(orderBy: string): Order {
+    return new Order(new OrderBy(orderBy), OrderType.desc());
+  }
+
+  hasOrder(): boolean {
+    return !this.orderType.isNone();
+  }
+}
+```
+
 ---
 
 ### 3.6 Bloque: `bus/`
@@ -445,21 +564,17 @@ export class Criteria {
 
 ```typescript
 // command-bus.ts
-export interface Command {
-  // Marker interface para comandos
-}
+// Nota: La interfaz base Command conceptualmente reside en @monorepo/shared/application
 
 export interface CommandBus {
-  dispatch<C extends Command = Command>(command: C): Promise<void>;
+  dispatch<C>(command: C): Promise<void>;
 }
 
 // query-bus.ts
-export interface Query {
-  // Marker interface para queries
-}
+// Nota: La interfaz base Query conceptualmente reside en @monorepo/shared/application
 
 export interface QueryBus {
-  ask<R, Q extends Query = Query>(query: Q): Promise<R>;
+  ask<R, Q>(query: Q): Promise<R>;
 }
 
 // event-bus.ts
@@ -532,6 +647,24 @@ export class Result<T, E extends Failure> {
 
 ---
 
+### 3.8 Guía de Decisión: Result vs DomainException
+
+* **`DomainException` (por defecto):** Para violaciones de invariantes en Value Objects y Agregados, entidad no encontrada, o acceso denegado (forbidden). Son capturados automáticamente por el `DomainExceptionFilter` en NestJS.
+* **`Result<T, Failure>` (opcional):** Para cadenas complejas de validación en servicios de frontend o cuando es necesario acumular múltiples errores. **NO** se utiliza en handlers de comandos/consultas del backend (esos usan excepciones).
+
+---
+
+### 3.9 Bloque: `types/`
+
+* **Nivel:** **[OPCIONAL]**
+
+```typescript
+// nullable.type.ts
+export type Nullable<T> = T | null;
+```
+
+---
+
 ## 4. Barril de Exportación (`src/index.ts`)
 
 * **[ESTRICTO]:** Todo símbolo accesible para los Bounded Contexts debe ser re-exportado explícitamente desde
@@ -552,6 +685,7 @@ export * from './exceptions/domain.exception';
 export * from './exceptions/invalid-argument.error';
 export * from './exceptions/domain-not-found.error';
 export * from './exceptions/domain-conflict.error';
+export * from './exceptions/forbidden.exception';
 
 export * from './event/domain-event';
 export * from './event/domain-event-subscriber';
@@ -573,4 +707,6 @@ export * from './bus/event-bus';
 
 export * from './result/result';
 export * from './result/failure';
+
+export * from './types/nullable.type';
 ```

@@ -44,6 +44,19 @@ tools/
 │       └── tsconfig.json
 ```
 
+### Configuración en `nx.json`
+Para registrar el plugin y hacerlo disponible en todo el workspace, es necesario añadirlo a los plugins de `nx.json`:
+
+```json
+{
+  "plugins": [
+    { "plugin": "./tools/plugins/architecture" }
+  ]
+}
+```
+
+> **Variables EJS Disponibles:** Todos los generadores utilizan las funciones del SDK de Nx para transformar los nombres. Al usar `<%= variable %>` en plantillas, tienes acceso a variantes como `__fileName__` (kebab-case), `className` (PascalCase), `propertyName` (camelCase) y `constantName` (UPPER_SNAKE_CASE).
+
 ---
 
 ## 3. Especificación del Generador: `bounded-context`
@@ -67,6 +80,17 @@ tools/
     }
   },
   "required": ["name"]
+}
+```
+
+### 3.2 Tipado del Esquema (`schema.d.ts`)
+
+```typescript
+// tools/plugins/architecture/src/generators/bounded-context/schema.d.ts
+export interface BoundedContextGeneratorSchema {
+  name: string;
+  directory?: string;
+  tags?: string;
 }
 ```
 
@@ -159,6 +183,8 @@ export async function boundedContextGenerator(
 export default boundedContextGenerator;
 ```
 
+> **Nota sobre ESLint:** El generador `bounded-context` también debe encargarse de actualizar el archivo `eslint.config.js` (o `.eslintrc.json`) para añadir automáticamente las nuevas restricciones de dependencia (`depConstraints`) con el nuevo tag `scope:{context}`, de forma que se aísle del resto de contextos existentes.
+
 ---
 
 ## 4. Especificación del Generador: `vertical-slice`
@@ -189,6 +215,22 @@ export default boundedContextGenerator;
     }
   },
   "required": ["context", "name", "type"]
+}
+```
+
+### 4.2 Plantilla EJS de Comando (`__fileName__.command.ts.template`)
+
+```ejs
+// tools/plugins/architecture/src/generators/vertical-slice/files/command-slice/__fileName__.command.ts.template
+import { Command } from '@monorepo/shared/application';
+
+export class <%= className %>Command extends Command {
+  constructor(
+    readonly id: string,
+    // TODO: Add command properties
+  ) {
+    super();
+  }
 }
 ```
 

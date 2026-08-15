@@ -39,9 +39,13 @@ para garantizar bajo acoplamiento, alta cohesión, aislamiento total del dominio
    - [YAGNI (You Aren't Gonna Need It)](#yagni-you-arent-gonna-need-it)
    - [DRY (Don't Repeat Yourself)](#dry-dont-repeat-yourself)
    - [Ley de Demeter (Principio de Menor Conocimiento)](#ley-de-demeter-principio-de-menor-conocimiento)
+   - [Autorización en Dos Niveles y Regla "1 Acción = 1 Permiso Dedicado"](#autorización-en-dos-niveles-y-regla-1-acción--1-permiso-dedicado)
 6. [Patrones Tácticos de Implementación](#6-patrones-tácticos-de-implementación)
    - [Inyección de Dependencias sin Contaminar el Core](#inyección-de-dependencias-sin-contaminar-el-core)
    - [Manejo de Errores: Either / Result Pattern](#manejo-de-errores-either--result-pattern)
+   - [Taxonomía de las 5 Capas de Estado Frontend](#taxonomía-de-las-5-capas-de-estado-frontend)
+   - [Estandarización de Respuestas API (Envelope ApiResponse)](#estandarización-de-respuestas-api-envelope-apiresponse)
+   - [Estándar de Logging Estructurado](#estándar-de-logging-estructurado)
    - [Wrappers (Empaquetadores de Terceros)](#wrappers-empaquetadores-de-terceros)
    - [Event Bus & Failover Publisher](#event-bus--failover-publisher)
    - [Criteria Converters](#criteria-converters)
@@ -82,8 +86,8 @@ lectura/consulta de datos (Queries).
 * **Por qué existe:** Los modelos optimizados para escribir (consistencia transaccional, invariantes de agregados)
   son ineficientes para consultar, y viceversa.
 * **Comportamiento exigido:**
-  * **Commands:** Modifican estado, validan agregados, emiten eventos y **no retornan datos** (salvo identificadores
-    o Result de éxito/falla).
+  * **Commands:** Modifican estado, validan agregados y emiten eventos. **Retornan `Promise<void>` ESTRICTAMENTE**. Para IDs, el cliente/controlador genera el UUID antes de despachar.
+    No retornan datos ni IDs.
   * **Queries:** Consultan datos optimizados (Read Models / DTOs / Proyecciones) y **jamás modifican el estado**
     del sistema ni emiten eventos de dominio.
 
@@ -110,12 +114,9 @@ Patrón para garantizar que la persistencia del agregado y el registro de sus ev
 * **Por qué existe:** En sistemas distribuidos, si se guarda en la base de datos pero el broker de mensajería
   está caído, se pierden eventos y se produce inconsistencia de datos (Dual-Write Problem).
 * **Comportamiento exigido:**
-  * **Persistencia Atómica:** La capa de persistencia guarda el estado del agregado y sus eventos de dominio en
-    una tabla/colección `outbox` dentro de la misma transacción de base de datos (`UnitOfWork`).
-  * **Despacho Seguro:** El `EventBus` o un proceso en segundo plano (*Outbox Publisher / Relay*) despacha los
-    eventos hacia el broker de mensajería (RabbitMQ/Redis) y marca los eventos como procesados.
-  * **Failover:** En caso de caída del broker, el `FailoverPublisher` reintenta de forma diferida garantizando entrega
-    *al menos una vez* (*at-least-once delivery*).
+  * **Por Defecto (Simple/Dev):** El Application Service llama a `eventBus.publish(user.pullDomainEvents())` después de `repository.save(user)` utilizando un In-Memory EventBus.
+  * **Producción:** Persistencia atómica usando Transactional Outbox en el repositorio + un procesador en background hacia el broker.
+  * **Nota:** Ambas son estrategias válidas dependiendo del entorno y criticidad.
 
 ---
 
@@ -298,6 +299,20 @@ Asegurar que cada regla de negocio tenga una representación única e inequívoc
 ### Ley de Demeter (Principio de Menor Conocimiento)
 Un objeto solo debe interactuar con sus colaboradores directos sin indagar en las estructuras internas de terceros.
 
+### Autorización en Dos Niveles y Regla "1 Acción = 1 Permiso Dedicado"
+Para evitar vulnerabilidades de seguridad y erradicar **falsos positivos** (donde un usuario accede a una acción por tener un permiso genérico o la interfaz muestra botones que fallan):
+
+1. **Nivel 1 — Autorización de Acción HTTP (@UseGuards(ActionPermissionGuard) + DTO):**
+   * **1 Acción = 1 Permiso Dedicado (Enum):** Cada endpoint o acción controlada **DEBE** verificar su propio `case` en un enum tipado (`PermissionEnum.RESOURCE_ACTION`, ej: `PermissionEnum.USER_EXPORT`). Queda prohibido usar strings mágicos o permisos genéricos compartidos ("ver usuarios" no autoriza "exportar usuarios").
+   * **Verificación de Autenticación:** Se comprueba explícitamente que exista usuario autenticado (`user !== null`) y que posea el permiso exacto (`user.can(PermissionEnum.RESOURCE_ACTION)`).
+2. **Nivel 2 — Autorización de Recurso y Alcance de Datos en Dominio (Service / Policy / Repository):**
+   * **Protección Inter-Entidades:** Aunque el usuario tenga el permiso de la acción, el servicio valida si tiene derecho a operar sobre la instancia o entidad específica (ej: el empleado A no puede consultar ventas del empleado B sin ser supervisor).
+   * **Rechazo Explícito:** Si la política de dominio no se cumple, el servicio lanza una `ForbiddenException` de dominio.
+   * **Query Scoping:** En listados masivos, el servicio pasa el ID/Tenant del actor al repositorio para que acote la consulta directamente en la persistencia.
+3. **Espejo en Frontend (UI):**
+   * Los componentes interactivos (botones, menús, acciones) consultan exactamente el mismo `PermissionEnum` (`hasPermission(PermissionEnum.RESOURCE_ACTION)`).
+   * Si el usuario carece del permiso, la acción no se renderiza o se deshabilita, evitando inconsistencias visuales y llamadas fallidas.
+
 ---
 
 ## 6. Patrones Tácticos de Implementación
@@ -308,13 +323,13 @@ Para no contaminar la capa de aplicación con `@Injectable()` ni `@Inject()` de 
 2. En `infrastructure/server/` se crea un NestJS Module que define los providers utilizando `useFactory`:
 
 ```typescript
-// libs/{context}/infrastructure/src/server/nest/user.module.ts
+// libs/{context}/infrastructure/server/src/nest/user-server.module.ts
 @Module({
   controllers: [UserPutController],
   providers: [
     TypeOrmUserRepository,
     {
-      provide: 'UserRepository',
+      provide: USER_TOKENS.REPOSITORY,
       useExisting: TypeOrmUserRepository,
     },
     {
@@ -322,12 +337,12 @@ Para no contaminar la capa de aplicación con `@Injectable()` ni `@Inject()` de 
       useFactory: (repository: UserRepository, eventBus: EventBus) => {
         return new UserRegistrar(repository, eventBus);
       },
-      inject: ['UserRepository', 'EventBus'],
+      inject: [USER_TOKENS.REPOSITORY, SHARED_TOKENS.EVENT_BUS],
     },
   ],
   exports: [UserRegistrar],
 })
-export class UserNestModule {}
+export class UserServerModule {}
 ```
 
 ### Manejo de Errores: Either / Result Pattern y Excepciones Tipadas
@@ -335,6 +350,30 @@ Se soportan dos patrones limpios y complementarios:
 1. **Result Pattern (`Result<T, Failure>`):** Para flujos funcionales donde los errores son valores esperados.
 2. **Excepciones de Dominio Tipadas (`DomainException`):** Para invariantes violadas en Value Objects y Agregados,
    capturadas limpiamente por `DomainExceptionFilter` mediante `instanceof`.
+
+### Taxonomía de las 5 Capas de Estado Frontend
+Para evitar duplicación y estados desincronizados en aplicaciones Web, Mobile y Desktop:
+1. **Estado Global del Cliente (Zustand):** Sesión de usuario, tema, preferencias del cliente y estados transversales compartidos entre módulos.
+2. **Estado Efímero Local (`useState` / `useReducer`):** Modales abiertos/cerrados, acordeones, toggles visuales acotados a un único componente.
+3. **Estado de Formularios (React Hook Form + Zod):** Valores de inputs, dirty state, errores de validación en tiempo real validados obligatoriamente con Zod.
+4. **Estado del Servidor / Cache Asíncrono (TanStack Query / Repositorios Cliente):** Datos remotos cacheados, reintentos automáticos, invalidación y sincronización en segundo plano.
+5. **Estado de URL / Enrutamiento (React Router):** Filtros de búsqueda, paginación, IDs de recursos en path params y query strings.
+
+### Estandarización de Respuestas API (Envelope ApiResponse)
+Todas las respuestas de backend respetan 4 variantes homogéneas:
+1. **Éxito Individual:** `{ success: true, message: string, data: { ... }, meta: { code: 200, timestamp, version } }`
+2. **Éxito en Colección Paginada:** `{ success: true, message: string, data: [ ... ], meta: { code: 200, timestamp, version, pagination: { total, count, per_page, current_page, total_pages } } }`
+3. **Error Simple:** `{ success: false, message: string, meta: { code: 400|401|403|404, timestamp, version } }`
+4. **Error de Validación (422):** `{ success: false, message: string, meta: { code: 422, timestamp, version }, errors: { field: [ "mensaje..." ] } }`
+
+### Estándar de Logging Estructurado
+Todo log del sistema debe emitirse con el formato uniforme:
+```text
+[{ClassName}] {message} (con metadata estructurada opcional)
+```
+* **Instanciación:** El `AppLoggerService` recibe el contexto en su constructor (`new AppLoggerService(ClassName.name)`). Los desarrolladores no pasan números de línea manualmente.
+* **Niveles:** `info` (flujos normales), `debug` (diagnóstico local), `warning` (validaciones recuperables), `error` (excepciones con stack trace y contexto).
+* **Seguridad:** Queda estrictamente prohibido registrar credenciales, tokens, contraseñas o datos sensibles (redacción automática en producción).
 
 ### Wrappers (Empaquetadores de Terceros)
 Encapsula cualquier SDK o librería externa detrás de una interfaz propia de la organización.
@@ -362,6 +401,8 @@ Reglas en `.eslintrc.json` / `eslint.config.js` que validan estáticamente las i
 | `type:infra-server` | `type:domain`, `type:application`, `type:shared-domain`, `type:shared-application`, `type:shared-infra-server` | `type:ui`, `type:infra-client` |
 | `type:infra-client` | `type:domain`, `type:application`, `type:shared-domain`, `type:shared-infra-client` | `type:infra-server` |
 | `type:ui` | `type:domain`, `type:application`, `type:infra-client`, `type:shared-domain`, `type:shared-infra-client` | `type:infra-server` |
+
+> **Nota:** Esta tabla es un resumen. Para la fuente canónica completa de reglas de Nx Boundaries, consulta [`governance_nx_boundaries.md`](./governance_nx_boundaries.md).
 
 ---
 
@@ -393,6 +434,9 @@ Patrón para la creación de datos de prueba deterministas y aleatorios mediante
 
 ```text
 my-monorepo/
+├── .husky/                               # Git hooks
+├── rest-client/
+│   └── api/                              # Colección de endpoints de Bruno
 ├── apps/
 │   ├── api/                              # Backend NestJS (Entry Point HTTP/WS/Microservicios)
 │   │   ├── src/
@@ -467,14 +511,14 @@ my-monorepo/
 │       │
 │       ├── domain/                       # CAPA 1: DOMINIO DEL CONTEXTO (Puro TS)
 │       │   ├── src/
-│       │   │   ├── model/                # {Aggregate}.ts, {Aggregate}Id.ts, {Entity}.ts
-│       │   │   ├── events/               # {Aggregate}RegisteredDomainEvent.ts
-│       │   │   ├── exceptions/           # {DomainException}.ts
-│       │   │   ├── factories/            # {Aggregate}Factory.ts
+│       │   │   ├── model/                # {aggregate}.type.ts, {aggregate}-id.type.ts, {entity}.type.ts
+│       │   │   ├── events/               # {aggregate}-registered.domain-event.ts
+│       │   │   ├── exceptions/           # {domain-exception}.type.ts
+│       │   │   ├── factories/            # {aggregate}.factory.ts
 │       │   │   ├── services/             # Domain Services (Reglas de negocio complejas)
 │       │   │   ├── ports/                # Puertos / Interfaces puras
-│       │   │   │   ├── {Aggregate}Repository.ts # Interfaz del repositorio
-│       │   │   │   └── {Service}Port.ts         # Contrato para servicios externos
+│       │   │   │   ├── {aggregate}.repository.ts # Interfaz del repositorio
+│       │   │   │   └── {service}.port.ts         # Contrato para servicios externos
 │       │   │   └── index.ts
 │       │   └── tsconfig.json
 │       │
@@ -483,9 +527,8 @@ my-monorepo/
 │       │   │   ├── slices/               # Vertical Slices por caso de uso
 │       │   │   │   └── register-{aggregate}/
 │       │   │   │       ├── register-{aggregate}.command.ts
-│       │   │   │       ├── register-{aggregate}.handler.ts
-│       │   │   │       ├── register-{aggregate}.handler.spec.ts
-│       │   │   │       └── register-{aggregate}.dto.ts
+│       │   │   │       ├── register-{aggregate}.command-handler.ts
+│       │   │   │       └── {aggregate}-registrar.service.ts
 │       │   │   ├── search-by-criteria/
 │       │   │   │   ├── search-{aggregates}-by-criteria.query.ts
 │       │   │   │   ├── search-{aggregates}-by-criteria.handler.ts
@@ -521,8 +564,8 @@ my-monorepo/
 │       │
 │       └── testing/                      # UTILIDADES DE TEST DEL CONTEXTO
 │           ├── src/
-│           │   ├── mother/               # {Aggregate}Mother.ts, {ValueObject}Mother.ts
-│           │   ├── mocks/                # {Aggregate}RepositoryMock.ts
+│           │   ├── mother/               # {aggregate}.mother.ts, {value-object}.mother.ts
+│           │   ├── mocks/                # {aggregate}-repository.mock.ts
 │           │   └── index.ts
 │           └── tsconfig.json
 │

@@ -114,15 +114,41 @@ app.on('activate', () => {
 * **Nivel:** **[ESTRICTO]**
 
 ```typescript
+// apps/desktop/src/types/desktop.d.ts
+interface DesktopAPI {
+  notify: (message: string) => void;
+  getAppVersion: () => Promise<string>;
+}
+
+declare global {
+  interface Window {
+    desktopAPI: DesktopAPI;
+  }
+}
+
 // apps/desktop/src/preload/preload.ts
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('desktopAPI', {
-  platform: process.platform,
-  sendNotification: (title: string, body: string) => {
-    ipcRenderer.send('app:notify', { title, body });
-  }
+  notify: (message: string) => {
+    ipcRenderer.send('app:notify', message);
+  },
+  getAppVersion: () => ipcRenderer.invoke('app:version')
 });
+```
+
+#### `ipc-handlers.ts`
+* **Nivel:** **[OPCIONAL]**
+
+```typescript
+// apps/desktop/src/main/ipc-handlers.ts
+import { ipcMain, Notification } from 'electron';
+
+export function registerIpcHandlers(): void {
+  ipcMain.on('app:notify', (_event, message: string) => {
+    new Notification({ title: 'App', body: message }).show();
+  });
+}
 ```
 
 ---
@@ -134,76 +160,63 @@ contextBridge.exposeInMainWorld('desktopAPI', {
 
 ```tsx
 // apps/desktop/src/renderer/di/desktop-dependency-provider.tsx
-import React, { createContext, useContext, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import {
-  HttpClient,
   FetchHttpClient,
-  KeyValueStorage,
-  LocalStorageAdapter
+  LocalStorageAdapter,
+  RepositoryProvider
 } from '@monorepo/shared/infrastructure/client';
-import { UserRepository } from '@monorepo/users/domain';
 import { HttpUserApiRepository } from '@monorepo/users/infrastructure/client';
 
-export interface DesktopDependencies {
-  httpClient: HttpClient;
-  storage: KeyValueStorage;
-  userRepository: UserRepository;
-}
-
-const DesktopDependencyContext = createContext<DesktopDependencies | null>(null);
-
 export const DesktopDependencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const dependencies = useMemo<DesktopDependencies>(() => {
+  const repositories = useMemo(() => {
     const apiUrl = 'http://localhost:3000/api';
     const storage = new LocalStorageAdapter();
-    const httpClient = new FetchHttpClient(apiUrl);
+    const httpClient = new FetchHttpClient(apiUrl, () => storage.get('auth_token'));
     const userRepository = new HttpUserApiRepository(httpClient);
 
     return { httpClient, storage, userRepository };
   }, []);
 
   return (
-    <DesktopDependencyContext.Provider value={dependencies}>
+    <RepositoryProvider repositories={repositories}>
       {children}
-    </DesktopDependencyContext.Provider>
+    </RepositoryProvider>
   );
 };
-
-export function useDesktopDependencies(): DesktopDependencies {
-  const context = useContext(DesktopDependencyContext);
-  if (!context) {
-    throw new Error('useDesktopDependencies must be used within <DesktopDependencyProvider>');
-  }
-  return context;
-}
 ```
 
 ```tsx
-// apps/desktop/src/renderer/main.tsx
+// apps/desktop/src/renderer/app.tsx
 import React from 'react';
-import ReactDOM from 'react-dom/client';
-import { DesktopDependencyProvider, useDesktopDependencies } from './di/desktop-dependency-provider';
-import { RegisterUserContainer } from '@monorepo/users/ui';
+import { UsersPage } from '@monorepo/users/ui';
 
-const DesktopApp: React.FC = () => {
-  const { userRepository } = useDesktopDependencies();
+export const App: React.FC = () => {
   return (
     <div className="desktop-window">
       <header className="title-bar">
         <h1>Mi Aplicación de Escritorio</h1>
       </header>
       <main>
-        <RegisterUserContainer repository={userRepository} />
+        <UsersPage />
       </main>
     </div>
   );
 };
+```
+
+```tsx
+// apps/desktop/src/renderer/main.tsx
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { DesktopDependencyProvider } from './di/desktop-dependency-provider';
+import { App } from './app';
 
 const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
 root.render(
   <React.StrictMode>
     <DesktopDependencyProvider>
-      <DesktopApp />
+      <App />
     </DesktopDependencyProvider>
   </React.StrictMode>
 );

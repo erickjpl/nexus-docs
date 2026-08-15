@@ -167,10 +167,28 @@ export interface QueryHandler<Q extends Query, R extends Response> {
 * **Nivel:** **[OPCIONAL]**
 * **Por qué existe:** Para escenarios donde un Bounded Context o una aplicación de frontend decide invocar un servicio
   de aplicación directamente sin pasar por un CommandBus/QueryBus.
+* **Nota de Decisión (UseCase vs CQRS):** `UseCase` es para flujos simples que no requieren un bus de mensajes. CQRS (`CommandHandler` / `QueryHandler`) se utiliza para flujos mediados por buses. Ambos son válidos; el equipo elige según la complejidad del caso.
 
 ```typescript
 export interface UseCase<Input, Output> {
   execute(request: Input): Promise<Output>;
+}
+```
+
+---
+
+### 3.4 Bloque: `event/`
+
+#### `domain-event-handler.interface.ts`
+* **Nivel:** **[ESTRICTO]**
+* **Por qué existe:** Contrato para los suscriptores que procesan eventos de dominio de forma asíncrona.
+
+```typescript
+import { DomainEvent } from '@monorepo/shared/domain';
+
+export interface DomainEventHandler<T extends DomainEvent = DomainEvent> {
+  subscribedTo(): Array<new (...args: unknown[]) => T>;
+  handle(event: T): Promise<void>;
 }
 ```
 
@@ -190,4 +208,6 @@ export * from './query/query-class.type';
 export * from './query/response';
 
 export * from './use-case/use-case.interface';
+
+export * from './event/domain-event-handler.interface';
 ```

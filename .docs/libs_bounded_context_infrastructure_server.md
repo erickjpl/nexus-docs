@@ -2,8 +2,7 @@
 
 Este módulo constituye la **Capa de Infraestructura de Servidor del Bounded Context**. Contiene las implementaciones
 técnicas concretas que requieren el entorno de ejecución Node.js y el framework NestJS: persistencia en base de datos
-(TypeORM/Mongo), esquemas de tablas/documentos, mappers de datos, controladores HTTP REST, consumidores de mensajería
-(RabbitMQ) y la configuración de inyección de dependencias de NestJS mediante **Factory Providers**.
+(TypeORM/Mongo), esquemas de tablas/documentos, mappers de datos, controladores HTTP REST protegidos con la regla **"1 Acción = 1 Permiso Dedicado"**, consumidores de mensajería (RabbitMQ) y la configuración de inyección de dependencias de NestJS mediante **Factory Providers**.
 
 ---
 
@@ -11,18 +10,14 @@ técnicas concretas que requieren el entorno de ejecución Node.js y el framewor
 
 * **[ESTRICTO] Exclusividad de Backend:** Prohibido importar este paquete en aplicaciones frontend (`apps/web`,
   `apps/mobile`, `apps/desktop`) o librerías de UI. Contiene dependencias de Node.js, TypeORM y NestJS.
-* **[ESTRICTO] Dependencias Permitidas:**
-  * `@monorepo/shared/domain` (`type:shared-domain`)
-  * `@monorepo/shared/application` (`type:shared-application`)
-  * `@monorepo/shared/infrastructure/server` (`type:shared-infra-server`)
-  * `@monorepo/{bounded_context}/domain` (`type:domain`)
-  * `@monorepo/{bounded_context}/application` (`type:application`)
-* **[ESTRICTO] Tag de Nx:** Configurado en `project.json` con `tags: ["type:infra-server", "scope:{context}"]`.
+* **[ESTRICTO] Controladores de Acción Única y Cero `try/catch` Manual:** Los controladores no contienen bloques `try/catch`. Delegan directamente al CommandBus / QueryBus o al Servicio de Aplicación, y envuelven la salida en el sobre estandarizado `ApiResponse`.
+* **[ESTRICTO] Autorización de Nivel 1 (1 Acción = 1 Permiso vía Enum):** Todo controlador de acción sensible declara explícitamente `@RequirePermission(PermissionEnum.ACTION)` y `@UseGuards(ActionPermissionGuard)`.
 * **[ESTRICTO] Mappers Bidireccionales:** Ninguna consulta SQL/ORM debe devolver directamente esquemas de persistencia
   a la capa de aplicación. Todo dato se transforma al Agregado mediante `Aggregate.fromPrimitives()`, y todo agregado
   que entra se extrae con `aggregate.toPrimitives()`.
 * **[ESTRICTO] Registro Limpio en NestJS:** Los casos de uso de `application/` se registran en los módulos de NestJS
   mediante `useFactory` y tokens de inyección, garantizando que el núcleo permanezca libre de `@Injectable()`.
+* **[ESTRICTO] Tag de Nx:** Configurado en `project.json` con `tags: ["type:infra-server", "scope:{context}"]`.
 
 ---
 
@@ -66,10 +61,6 @@ libs/{bounded_context}/infrastructure/server/
 ### 3.1 Bloque: `persistence/typeorm/`
 
 #### `user.entity-schema.ts` (Esquema desacoplado)
-* **Nivel:** **[ESTRICTO]**
-* **Por qué existe:** En lugar de ensuciar las clases del Dominio con decoradores `@Entity()` y `@Column()`, se
-  utiliza `EntitySchema` en la capa de infraestructura.
-
 ```typescript
 // libs/users/infrastructure/server/src/persistence/typeorm/user.entity-schema.ts
 import { EntitySchema } from 'typeorm';
@@ -78,6 +69,8 @@ export interface UserDatabaseSchema {
   id: string;
   name: string;
   email: string;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export const UserEntitySchema = new EntitySchema<UserDatabaseSchema>({
@@ -86,26 +79,30 @@ export const UserEntitySchema = new EntitySchema<UserDatabaseSchema>({
   columns: {
     id: {
       type: 'uuid',
-      primary: true
+      primary: true,
     },
     name: {
       type: 'varchar',
-      length: 50
+      length: 50,
     },
     email: {
       type: 'varchar',
       length: 100,
-      unique: true
-    }
-  }
+      unique: true,
+    },
+    created_at: {
+      type: 'timestamp',
+      createDate: true,
+    },
+    updated_at: {
+      type: 'timestamp',
+      updateDate: true,
+    },
+  },
 });
 ```
 
----
-
 #### `user.mapper.ts`
-* **Nivel:** **[ESTRICTO]**
-
 ```typescript
 // libs/users/infrastructure/server/src/persistence/typeorm/user.mapper.ts
 import { User } from '@monorepo/users/domain';
@@ -116,25 +113,28 @@ export class UserMapper {
     return User.fromPrimitives({
       id: raw.id,
       name: raw.name,
-      email: raw.email
+      email: raw.email,
     });
   }
 
   static toPersistence(user: User): UserDatabaseSchema {
-    return user.toPrimitives();
+    const primitives = user.toPrimitives();
+    return {
+      id: primitives.id,
+      name: primitives.name,
+      email: primitives.email,
+      created_at: new Date(),
+      updated_at: new Date(),
+    };
   }
 }
 ```
 
----
-
 #### `typeorm-user.repository.ts`
-* **Nivel:** **[ESTRICTO]**
-
 ```typescript
 // libs/users/infrastructure/server/src/persistence/typeorm/typeorm-user.repository.ts
-import { Repository, DataSource } from 'typeorm';
-import { Criteria } from '@monorepo/shared/domain';
+import { Repository, DataSource, QueryFailedError } from 'typeorm';
+import { Criteria, DomainConflictError } from '@monorepo/shared/domain';
 import { TypeOrmCriteriaConverter } from '@monorepo/shared/infrastructure/server';
 import { User, UserId, UserRepository } from '@monorepo/users/domain';
 import { UserDatabaseSchema, UserEntitySchema } from './user.entity-schema';
@@ -150,7 +150,14 @@ export class TypeOrmUserRepository implements UserRepository {
 
   async save(user: User): Promise<void> {
     const raw = UserMapper.toPersistence(user);
-    await this.repository.save(raw);
+    try {
+      await this.repository.save(raw);
+    } catch (error) {
+      if (error instanceof QueryFailedError && error.message.includes('unique constraint')) {
+        throw new DomainConflictError(`El usuario con el email ya existe`);
+      }
+      throw error;
+    }
   }
 
   async search(id: UserId): Promise<User | null> {
@@ -163,49 +170,45 @@ export class TypeOrmUserRepository implements UserRepository {
     return raws.map((raw) => UserMapper.toDomain(raw));
   }
 
-  async matching(criteria: Criteria): Promise<Array<User>> {
+  async matching(criteria: Criteria): Promise<{ items: Array<User>; total: number }> {
     const options = this.criteriaConverter.convert<UserDatabaseSchema>(criteria);
-    const raws = await this.repository.find(options);
-    return raws.map((raw) => UserMapper.toDomain(raw));
+    const [raws, total] = await this.repository.findAndCount(options);
+    return { items: raws.map((raw) => UserMapper.toDomain(raw)), total };
   }
 }
 ```
 
 ---
 
-### 3.2 Bloque: `http/` (Controladores NestJS)
+### 3.2 Bloque: `http/` (Controladores Protegidos y Limpios)
 
 #### `register-user-http.dto.ts`
-* **Nivel:** **[ESTRICTO]**
-
 ```typescript
 // libs/users/infrastructure/server/src/http/dto/register-user-http.dto.ts
-import { IsString, IsUUID, IsEmail, MinLength, MaxLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, IsUUID } from 'class-validator';
 
 export class RegisterUserHttpDto {
   @IsUUID('4')
-  id!: string;
+  readonly id!: string;
 
   @IsString()
-  @MinLength(3)
-  @MaxLength(50)
-  name!: string;
+  @IsNotEmpty()
+  readonly name!: string;
 
   @IsEmail()
-  email!: string;
+  readonly email!: string;
 }
 ```
 
----
-
 #### `user-put.controller.ts`
-* **Nivel:** **[ESTRICTO]**
-
 ```typescript
 // libs/users/infrastructure/server/src/http/user-put.controller.ts
-import { Controller, Put, Param, Body, HttpCode, HttpStatus, Inject } from '@nestjs/common';
+import { Controller, Put, Param, Body, HttpCode, HttpStatus, Inject, UseGuards } from '@nestjs/common';
 import { CommandBus } from '@monorepo/shared/domain';
-import { SHARED_TOKENS } from '@monorepo/shared/infrastructure/server';
+import { Command } from '@monorepo/shared/application';
+import { SHARED_TOKENS, ApiResponse } from '@monorepo/shared/infrastructure/server';
+import { ActionPermissionGuard, RequirePermission } from '@monorepo/shared/infrastructure/server';
+import { UserPermissionEnum } from '@monorepo/users/domain';
 import { RegisterUserCommand } from '@monorepo/users/application';
 import { RegisterUserHttpDto } from './dto/register-user-http.dto';
 
@@ -218,14 +221,57 @@ export class UserPutController {
 
   @Put(':id')
   @HttpCode(HttpStatus.CREATED)
-  async run(@Param('id') id: string, @Body() body: RegisterUserHttpDto): Promise<void> {
+  @UseGuards(ActionPermissionGuard)
+  @RequirePermission(UserPermissionEnum.USER_CREATE)
+  async run(@Param('id') id: string, @Body() body: RegisterUserHttpDto) {
     const command = new RegisterUserCommand({
       id,
       name: body.name,
-      email: body.email
+      email: body.email,
     });
 
     await this.commandBus.dispatch(command);
+
+    return ApiResponse.created({
+      id,
+      name: body.name,
+      email: body.email,
+    }, 'Usuario registrado exitosamente');
+  }
+}
+```
+
+#### `users-get.controller.ts`
+```typescript
+// libs/users/infrastructure/server/src/http/users-get.controller.ts
+import { Controller, Get, Query, Inject, UseGuards } from '@nestjs/common';
+import { QueryBus } from '@monorepo/shared/domain';
+import { SHARED_TOKENS, ApiResponse } from '@monorepo/shared/infrastructure/server';
+import { ActionPermissionGuard, RequirePermission } from '@monorepo/shared/infrastructure/server';
+import { UserPermissionEnum } from '@monorepo/users/domain';
+import { SearchUsersByCriteriaQuery, UsersResponse } from '@monorepo/users/application';
+import { SearchUsersQueryParamsDto } from './dto/search-users-query-params.dto'; // Asumido que existe
+
+@Controller('users')
+export class UsersGetController {
+  constructor(
+    @Inject(SHARED_TOKENS.QUERY_BUS) private readonly queryBus: QueryBus,
+  ) {}
+
+  @Get()
+  @RequirePermission(UserPermissionEnum.USER_LIST)
+  @UseGuards(ActionPermissionGuard)
+  async run(@Query() queryParams: SearchUsersQueryParamsDto) {
+    const response = await this.queryBus.ask<UsersResponse>(
+      new SearchUsersByCriteriaQuery(
+        queryParams.filters,
+        queryParams.orderBy,
+        queryParams.order,
+        queryParams.limit,
+        queryParams.offset,
+      ),
+    );
+    return ApiResponse.paginated(response.users, response.pagination, 'Users retrieved');
   }
 }
 ```
@@ -235,58 +281,57 @@ export class UserPutController {
 ### 3.3 Bloque: `nest/` (Inyección de Dependencias Limpia)
 
 #### `user.tokens.ts`
-* **Nivel:** **[ESTRICTO]**
-
 ```typescript
 // libs/users/infrastructure/server/src/nest/user.tokens.ts
 export const USER_TOKENS = {
-  REPOSITORY: Symbol('USER_REPOSITORY'),
-  REGISTRAR: Symbol('USER_REGISTRAR'),
-  SEARCHER: Symbol('USERS_SEARCHER')
+  REPOSITORY: Symbol('UserRepository'),
+  FINDER: Symbol('UserFinder'),
+  REGISTRAR: Symbol('UserRegistrar'),
 } as const;
 ```
 
----
-
 #### `user-server.module.ts`
-* **Nivel:** **[ESTRICTO]**
-
 ```typescript
 // libs/users/infrastructure/server/src/nest/user-server.module.ts
 import { Module } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { EventBus } from '@monorepo/shared/domain';
 import { SHARED_TOKENS } from '@monorepo/shared/infrastructure/server';
-import { UserRegistrar, RegisterUserCommandHandler } from '@monorepo/users/application';
+import { UserRegistrar, UserFinder, RegisterUserCommandHandler } from '@monorepo/users/application';
 import { UserRepository } from '@monorepo/users/domain';
 import { USER_TOKENS } from './user.tokens';
 import { TypeOrmUserRepository } from '../persistence/typeorm/typeorm-user.repository';
 import { UserPutController } from '../http/user-put.controller';
+import { UsersGetController } from '../http/users-get.controller';
 
 @Module({
-  controllers: [UserPutController],
   providers: [
-    {
-      provide: USER_TOKENS.REPOSITORY,
-      useFactory: (dataSource: DataSource): UserRepository => {
-        return new TypeOrmUserRepository(dataSource);
-      },
-      inject: [DataSource]
-    },
+    // Application Services
     {
       provide: USER_TOKENS.REGISTRAR,
-      useFactory: (repository: UserRepository, eventBus: EventBus): UserRegistrar => {
-        return new UserRegistrar(repository, eventBus);
-      },
-      inject: [USER_TOKENS.REPOSITORY, SHARED_TOKENS.EVENT_BUS]
+      useFactory: (repository: UserRepository, eventBus: EventBus) => new UserRegistrar(repository, eventBus),
+      inject: [USER_TOKENS.REPOSITORY, SHARED_TOKENS.EVENT_BUS],
     },
+    {
+      provide: USER_TOKENS.FINDER,
+      useFactory: (repository: UserRepository) => new UserFinder(repository),
+      inject: [USER_TOKENS.REPOSITORY],
+    },
+    // Command/Query Handlers
     {
       provide: RegisterUserCommandHandler,
       useFactory: (registrar: UserRegistrar) => new RegisterUserCommandHandler(registrar),
-      inject: [USER_TOKENS.REGISTRAR]
-    }
+      inject: [USER_TOKENS.REGISTRAR],
+    },
+    // Repository
+    {
+      provide: USER_TOKENS.REPOSITORY,
+      useFactory: (dataSource: DataSource) => new TypeOrmUserRepository(dataSource),
+      inject: [DataSource],
+    },
   ],
-  exports: [USER_TOKENS.REPOSITORY, USER_TOKENS.REGISTRAR]
+  controllers: [UserPutController, UsersGetController],
+  exports: [RegisterUserCommandHandler],
 })
 export class UserServerModule {}
 ```
@@ -302,6 +347,7 @@ export * from './persistence/typeorm/typeorm-user.repository';
 export * from './persistence/typeorm/user.mapper';
 
 export * from './http/user-put.controller';
+export * from './http/users-get.controller';
 export * from './http/dto/register-user-http.dto';
 
 export * from './nest/user.tokens';

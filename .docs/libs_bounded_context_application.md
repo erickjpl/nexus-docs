@@ -2,7 +2,7 @@
 
 Este módulo constituye la **Capa de Aplicación del Bounded Context** (la segunda capa de la Onion Architecture).
 Su función exclusiva es orquestar los casos de uso del negocio organizados en **Vertical Slices**: recibe comandos
-o consultas, recupera agregados, ejecuta métodos de dominio, persiste cambios y despacha eventos de dominio.
+o consultas, recupera agregados, ejecuta métodos de dominio, valida **políticas de autorización de Nivel 2 (Alcance de Datos y Recursos)**, persiste cambios y despacha eventos de dominio.
 
 ---
 
@@ -14,11 +14,10 @@ o consultas, recupera agregados, ejecuta métodos de dominio, persiste cambios y
   * `@monorepo/shared/domain` (`type:shared-domain`)
   * `@monorepo/shared/application` (`type:shared-application`)
   * `@monorepo/{bounded_context}/domain` (`type:domain`)
+* **[ESTRICTO] Autorización de Nivel 2 (Alcance de Datos en Dominio):** Aunque la petición haya superado el Nivel 1 (permiso de acción HTTP), el servicio de aplicación valida si el actor tiene derecho sobre la entidad o datos solicitados. Si se viola la política de acceso, lanza `ForbiddenException` de dominio. Para consultas masivas, delega el filtrado por alcance (*Query Scoping*) al repositorio.
 * **[ESTRICTO] Tag de Nx:** Configurado en `project.json` con `tags: ["type:application", "scope:{context}"]`.
 * **[ESTRICTO] Orquestación del Ciclo de Eventos:** El caso de uso es el responsable de extraer los eventos con
   `aggregate.pullDomainEvents()` y publicarlos en el `EventBus` **después** de haber persistido el agregado.
-* **[ESTRICTO] Prohibición de Reglas de Negocio:** Esta capa no contiene lógica de negocio condicional ni validaciones
-  de invariantes; solo orquesta puertos y agregados.
 
 ---
 
@@ -35,14 +34,14 @@ libs/{bounded_context}/application/
 │   │   │
 │   │   ├── find-{aggregate}/
 │   │   │   ├── find-{aggregate}.query.ts                # [ESTRICTO] Consulta de búsqueda por ID
-│   │   │   ├── find-{aggregate}.query-handler.ts        # [ESTRICTO] Handler de la consulta
-│   │   │   ├── {aggregate}-finder.service.ts            # [ESTRICTO] Servicio de búsqueda y validación
+│   │   │   ├── find-{aggregate}.query-handler.ts        # [ESTRICTO] Handler de la consulta con Nivel 2
+│   │   │   ├── {aggregate}-finder.service.ts            # [ESTRICTO] Servicio con validación de política
 │   │   │   └── {aggregate}.response.ts                  # [ESTRICTO] DTO inmutable de respuesta
 │   │   │
 │   │   └── search-{aggregates}-by-criteria/
 │   │       ├── search-{aggregates}-by-criteria.query.ts         # [ESTRICTO] Consulta con filtros dinámicos
 │   │       ├── search-{aggregates}-by-criteria.query-handler.ts # [ESTRICTO] Handler de búsqueda
-│   │       ├── {aggregates}-by-criteria-searcher.service.ts     # [ESTRICTO] Orquestador de búsqueda
+│   │       ├── {aggregates}-by-criteria-searcher.service.ts     # [ESTRICTO] Orquestador con Query Scoping
 │   │       └── {aggregates}.response.ts                         # [ESTRICTO] DTO colección de respuesta
 │   │
 │   ├── event-handlers/
@@ -61,9 +60,6 @@ libs/{bounded_context}/application/
 ### 3.1 Vertical Slice: Caso de Uso de Escritura (`register-user`)
 
 #### `register-user.command.ts`
-* **Nivel:** **[ESTRICTO]**
-* **Por qué existe:** DTO inmutable que transporta datos primitivos hacia el caso de uso.
-
 ```typescript
 // libs/users/application/src/slices/register-user/register-user.command.ts
 import { Command } from '@monorepo/shared/application';
@@ -82,12 +78,7 @@ export class RegisterUserCommand extends Command {
 }
 ```
 
----
-
 #### `user-registrar.service.ts`
-* **Nivel:** **[ESTRICTO]**
-* **Por qué existe:** Es el orquestador del caso de uso.
-
 ```typescript
 // libs/users/application/src/slices/register-user/user-registrar.service.ts
 import { EventBus } from '@monorepo/shared/domain';
@@ -115,137 +106,161 @@ export class UserRegistrar {
 }
 ```
 
----
-
 #### `register-user.command-handler.ts`
-* **Nivel:** **[ESTRICTO]**
-* **Por qué existe:** Conecta el `CommandBus` con el servicio `UserRegistrar`.
-
 ```typescript
 // libs/users/application/src/slices/register-user/register-user.command-handler.ts
-import { CommandHandler, CommandClass } from '@monorepo/shared/application';
-import { UserId, UserName, UserEmail } from '@monorepo/users/domain';
+import { CommandHandler } from '@monorepo/shared/application';
 import { RegisterUserCommand } from './register-user.command';
 import { UserRegistrar } from './user-registrar.service';
 
 export class RegisterUserCommandHandler implements CommandHandler<RegisterUserCommand> {
-  constructor(private readonly userRegistrar: UserRegistrar) {}
+  constructor(private readonly registrar: UserRegistrar) {}
 
   subscribedTo(): CommandClass<RegisterUserCommand> {
     return RegisterUserCommand;
   }
 
   async handle(command: RegisterUserCommand): Promise<void> {
-    const id = new UserId(command.id);
-    const name = new UserName(command.name);
-    const email = new UserEmail(command.email);
-
-    await this.userRegistrar.run({ id, name, email });
+    await this.registrar.run({
+      id: command.id,
+      name: command.name,
+      email: command.email,
+    });
   }
 }
 ```
 
 ---
 
-### 3.2 Vertical Slice: Caso de Uso de Lectura (`search-users-by-criteria`)
-
-#### `search-users-by-criteria.query.ts`
-* **Nivel:** **[ESTRICTO]**
+### 3.2 Vertical Slice: Caso de Uso con Autorización de Nivel 2 (`find-user`)
 
 ```typescript
-// libs/users/application/src/slices/search-users-by-criteria/search-users-by-criteria.query.ts
-import { Query } from '@monorepo/shared/application';
+// libs/users/application/src/slices/find-user/user-finder.service.ts
+import { DomainNotFoundError, ForbiddenException } from '@monorepo/shared/domain';
+import { User, UserId, UserRepository } from '@monorepo/users/domain';
+import { UserResponse } from './user.response';
 
-export class SearchUsersByCriteriaQuery extends Query {
-  constructor(
-    readonly filters: Array<Map<string, string>>,
-    readonly orderBy?: string,
-    readonly orderType?: string,
-    readonly limit?: number,
-    readonly offset?: number
-  ) {
-    super();
+export interface UserFinderActor {
+  id: string;
+  role: string;
+  tenantId: string;
+}
+
+export class UserFinder {
+  constructor(private readonly repository: UserRepository) {}
+
+  async run(targetId: UserId, actor: UserFinderActor): Promise<UserResponse> {
+    const user = await this.repository.search(targetId);
+
+    if (!user) {
+      throw new DomainNotFoundError(`El usuario con ID <${targetId.value}> no existe`);
+    }
+
+    // Autorización Nivel 2: Política de Dominio sobre el Recurso
+    if (user.tenantId.value !== actor.tenantId) {
+      throw new ForbiddenException('Cannot access user from another tenant');
+    }
+
+    const primitives = user.toPrimitives();
+    return new UserResponse(primitives.id, primitives.name, primitives.email);
   }
 }
 ```
 
----
-
-#### `users.response.ts` & `user.response.ts`
-* **Nivel:** **[ESTRICTO]**
-
+#### `user.response.ts`
 ```typescript
-// libs/users/application/src/slices/search-users-by-criteria/users.response.ts
+// libs/users/application/src/slices/find-user/user.response.ts
 import { Response } from '@monorepo/shared/application';
-import { User } from '@monorepo/users/domain';
 
-export class UserResponse {
-  readonly id: string;
-  readonly name: string;
-  readonly email: string;
-
-  constructor(user: User) {
-    this.id = user.id.value;
-    this.name = user.name.value;
-    this.email = user.email.value;
-  }
+export class UserResponse implements Response {
+  constructor(
+    readonly id: string,
+    readonly name: string,
+    readonly email: string,
+  ) {}
 }
+```
 
-export class UsersResponse implements Response {
-  readonly users: Array<UserResponse>;
+#### `find-user.query-handler.ts`
+```typescript
+// libs/users/application/src/slices/find-user/find-user.query-handler.ts
+import { QueryHandler, QueryClass } from '@monorepo/shared/application';
+import { FindUserQuery } from './find-user.query';
+import { UserFinder } from './user-finder.service';
+import { UserResponse } from './user.response';
+import { UserId } from '@monorepo/users/domain';
 
-  constructor(users: Array<User>) {
-    this.users = users.map((user) => new UserResponse(user));
+export class FindUserQueryHandler implements QueryHandler<FindUserQuery, UserResponse> {
+  constructor(private readonly finder: UserFinder) {}
+
+  subscribedTo(): QueryClass<FindUserQuery> {
+    return FindUserQuery;
+  }
+
+  async handle(query: FindUserQuery): Promise<UserResponse> {
+    return this.finder.run(new UserId(query.id), { tenantId: query.tenantId });
   }
 }
 ```
 
 ---
 
-#### `users-by-criteria-searcher.service.ts` & Query Handler
-* **Nivel:** **[ESTRICTO]**
+### 3.3 Vertical Slice: Caso de Uso de Lectura (`search-users-by-criteria`)
 
 ```typescript
-// libs/users/application/src/slices/search-users-by-criteria/users-by-criteria-searcher.service.ts
-import { Criteria, Filters, Order } from '@monorepo/shared/domain';
+import { Criteria, Filter, FilterField, FilterOperator, FilterValue, Operator, Filters, Order } from '@monorepo/shared/domain';
 import { UserRepository } from '@monorepo/users/domain';
 import { UsersResponse } from './users.response';
+import { UserResponse } from '../find-user/user.response';
+
+export interface UserSearcherActor {
+  tenantId: string;
+}
 
 export class UsersByCriteriaSearcher {
   constructor(private readonly repository: UserRepository) {}
 
-  async run(filters: Filters, order: Order, limit?: number, offset?: number): Promise<UsersResponse> {
-    const criteria = new Criteria(filters, order, limit, offset);
-    const users = await this.repository.matching(criteria);
-
-    return new UsersResponse(users);
-  }
-}
-
-// search-users-by-criteria.query-handler.ts
-import { QueryHandler, QueryClass } from '@monorepo/shared/application';
-import { Filters, Order } from '@monorepo/shared/domain';
-import { SearchUsersByCriteriaQuery } from './search-users-by-criteria.query';
-import { UsersResponse } from './users.response';
-import { UsersByCriteriaSearcher } from './users-by-criteria-searcher.service';
-
-export class SearchUsersByCriteriaQueryHandler
-  implements QueryHandler<SearchUsersByCriteriaQuery, UsersResponse>
-{
-  constructor(private readonly searcher: UsersByCriteriaSearcher) {}
-
-  subscribedTo(): QueryClass<SearchUsersByCriteriaQuery> {
-    return SearchUsersByCriteriaQuery;
-  }
-
-  async handle(query: SearchUsersByCriteriaQuery): Promise<UsersResponse> {
-    const filters = Filters.fromValues(query.filters);
-    const order = Order.fromValues(query.orderBy, query.orderType);
-
-    return this.searcher.run(filters, order, query.limit, query.offset);
+  async run(params: { actor: UserSearcherActor; filters?: Filter[]; order?: Order; limit?: number; offset?: number }): Promise<UsersResponse> {
+    const scopeFilter = new Filter(
+      new FilterField('tenant_id'),
+      new FilterOperator(Operator.EQUAL),
+      new FilterValue(params.actor.tenantId),
+    );
+    const scopedFilters = new Filters([scopeFilter, ...(params.filters || [])]);
+    const criteria = new Criteria(scopedFilters, params.order ?? Order.none(), params.limit, params.offset);
+    
+    const { items, total } = await this.repository.matching(criteria);
+    const userResponses = items.map(user => {
+      const p = user.toPrimitives();
+      return new UserResponse(p.id, p.name, p.email);
+    });
+    return new UsersResponse(userResponses, {
+      total,
+      count: userResponses.length,
+      per_page: params.limit ?? 20,
+      current_page: Math.floor((params.offset ?? 0) / (params.limit ?? 20)) + 1,
+      total_pages: Math.ceil(total / (params.limit ?? 20)),
+    });
   }
 }
 ```
+
+#### `users.response.ts`
+```typescript
+// libs/users/application/src/slices/search-users-by-criteria/users.response.ts
+import { Response } from '@monorepo/shared/application';
+import { PaginationMeta } from '@monorepo/shared/infrastructure/server';
+import { UserResponse } from '../find-user/user.response';
+
+export class UsersResponse implements Response {
+  constructor(
+    readonly users: UserResponse[],
+    readonly pagination: PaginationMeta,
+  ) {}
+}
+```
+
+> **Transporte del Contexto de Actor:** El contexto del `actor` (como `id`, `role`, `tenantId`) debe extraerse del usuario autenticado en la petición HTTP (usualmente poblado por `JwtAuthGuard` en el backend) y pasarse explícitamente desde el Controlador al Comando o Query. La capa de aplicación no debe acceder directamente al request.
 
 ---
 
@@ -256,6 +271,9 @@ export class SearchUsersByCriteriaQueryHandler
 export * from './slices/register-user/register-user.command';
 export * from './slices/register-user/register-user.command-handler';
 export * from './slices/register-user/user-registrar.service';
+
+export * from './slices/find-user/user-finder.service';
+export * from './slices/find-user/user.response';
 
 export * from './slices/search-users-by-criteria/search-users-by-criteria.query';
 export * from './slices/search-users-by-criteria/search-users-by-criteria.query-handler';

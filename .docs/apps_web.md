@@ -1,26 +1,23 @@
 # Especificación: `apps/web`
 
-Este módulo constituye el **Punto de Entrada de la Aplicación Web (React / Vite / Next.js)**. Su responsabilidad
-exclusiva es montar la aplicación en el DOM, inicializar los adaptadores de infraestructura de cliente
-(`FetchHttpClient`, `LocalStorageAdapter`), proveer las dependencias mediante React Context, configurar las rutas
-del navegador y renderizar los Contenedores importados desde las librerías `ui/` de cada Bounded Context.
+Este módulo constituye el **Punto de Entrada de la Aplicación Web (React / Vite)**. Su responsabilidad
+exclusiva es montar la aplicación en el DOM, inicializar los adaptadores de infraestructura de cliente mediante
+las variables de entorno validadas (`env`), proveer las dependencias mediante React Context, configurar el enrutamiento
+con React Router y renderizar las Páginas Orquestadoras (`pages/`) de cada Bounded Context.
 
 ---
 
 ## 1. Directrices Obligatorias de la Capa
 
-* **[ESTRICTO] Cero Lógica de Negocio:** La aplicación `apps/web` no define componentes de formulario ni reglas
-  de negocio. Es un ensamblador (*Composition Root*) que conecta rutas con los Contenedores (`*.container.tsx`)
-  de `libs/{context}/ui`.
-* **[ESTRICTO] Inyección de Infraestructura vía Context:** Las instancias de repositorios HTTP y clientes de red
-  se construyen una sola vez en el `DependencyProvider` y se distribuyen al árbol de componentes mediante React Context.
+* **[ESTRICTO] Aislamiento de Entorno:** Queda **estrictamente prohibido invocar `import.meta.env` o `process.env`** en este módulo. Todo se consume desde la constante tipada y validada `env` de `@monorepo/shared/infrastructure/client`.
+* **[ESTRICTO] Cero Lógica de Negocio y Presentación Local:** La aplicación `apps/web` no define formularios ni vistas de dominio. Es un ensamblador (*Composition Root*) que conecta rutas con las Páginas (`*-page.tsx`) de `libs/{context}/ui`.
 * **[ESTRICTO] Dependencias Permitidas:**
   * `@monorepo/shared/domain` (`type:shared-domain`)
   * `@monorepo/shared/infrastructure/client` (`type:shared-infra-client`)
   * `@monorepo/{bounded_context}/domain` (`type:domain`)
   * `@monorepo/{bounded_context}/infrastructure/client` (`type:infra-client`)
   * `@monorepo/{bounded_context}/ui` (`type:ui`)
-* **[ESTRICTO] Tag de Nx:** Debe estar configurado en `project.json` con `tags: ["type:app-frontend", "scope:web"]`.
+* **[ESTRICTO] Tag de Nx:** Configurado en `project.json` con `tags: ["type:app-frontend", "scope:web"]`.
 * **[ESTRICTO] Prohibición de Servidor:** Prohibido importar módulos de `infrastructure/server`.
 
 ---
@@ -32,11 +29,11 @@ apps/web/
 ├── src/
 │   ├── app/
 │   │   ├── di/
-│   │   │   └── dependency-provider.tsx           # [ESTRICTO] Contenedor de DI para React
+│   │   │   └── dependency-provider.tsx           # [ESTRICTO] Inyección de dependencias cliente
 │   │   ├── routes/
 │   │   │   └── app-router.tsx                    # [ESTRICTO] Declaración de rutas con React Router
-│   │   └── app.tsx                               # [ESTRICTO] Componente raíz con Providers
-│   ├── main.tsx                                  # [ESTRICTO] Bootstrap de React DOM (createRoot)
+│   │   └── app.tsx                               # [ESTRICTO] Raíz de providers
+│   ├── main.tsx                                  # [ESTRICTO] Bootstrap en el DOM
 │   └── index.html
 ├── project.json
 ├── tsconfig.json
@@ -47,117 +44,102 @@ apps/web/
 
 ## 3. Especificación Detallada por Componente
 
-### 3.1 Bloque: `di/` (Inyección de Dependencias en React)
-
-#### `dependency-provider.tsx`
-* **Nivel:** **[ESTRICTO]**
-* **Por qué existe:** Inicializa los adaptadores de cliente (`FetchHttpClient`, `HttpUserApiRepository`) utilizando
-  las variables de entorno de la app web, y expone un hook `useDependencies()`.
+### 3.1 Bloque: `di/dependency-setup.tsx` (Inyección con Env Validado)
 
 ```tsx
-// apps/web/src/app/di/dependency-provider.tsx
-import React, { createContext, useContext, useMemo } from 'react';
+// apps/web/src/app/di/dependency-setup.tsx
+import React, { useMemo } from 'react';
 import {
-  HttpClient,
   FetchHttpClient,
-  KeyValueStorage,
-  LocalStorageAdapter
+  LocalStorageAdapter,
+  env,
+  RepositoryProvider
 } from '@monorepo/shared/infrastructure/client';
-import { UserRepository } from '@monorepo/users/domain';
 import { HttpUserApiRepository } from '@monorepo/users/infrastructure/client';
 
-export interface AppDependencies {
-  httpClient: HttpClient;
-  storage: KeyValueStorage;
-  userRepository: UserRepository;
-}
-
-const DependencyContext = createContext<AppDependencies | null>(null);
-
-export const DependencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const dependencies = useMemo<AppDependencies>(() => {
-    const apiUrl = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000/api';
-
+export const DependencySetup: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const repositories = useMemo(() => {
+    // Uso exclusivo de la configuración validada con Zod (Fail-Fast)
     const storage = new LocalStorageAdapter();
-    const httpClient = new FetchHttpClient(apiUrl);
+    const httpClient = new FetchHttpClient(
+      env.VITE_API_URL,
+      () => storage.get('auth_token'),
+    );
     const userRepository = new HttpUserApiRepository(httpClient);
 
     return {
-      httpClient,
       storage,
-      userRepository
+      httpClient,
+      userRepository,
     };
   }, []);
 
   return (
-    <DependencyContext.Provider value={dependencies}>
+    <RepositoryProvider repositories={repositories}>
       {children}
-    </DependencyContext.Provider>
+    </RepositoryProvider>
   );
 };
-
-export function useDependencies(): AppDependencies {
-  const context = useContext(DependencyContext);
-  if (!context) {
-    throw new Error('useDependencies must be used within a <DependencyProvider>');
-  }
-  return context;
-}
 ```
 
 ---
 
-### 3.2 Bloque: `routes/` (Enrutamiento Web)
+### 3.2 Bloque: `routes/app-router.tsx` & `routes/protected-route.tsx` (Enrutamiento con Páginas de UI)
 
-#### `app-router.tsx`
-* **Nivel:** **[ESTRICTO]**
+```tsx
+// apps/web/src/app/routes/protected-route.tsx
+import React from 'react';
+import { Navigate } from 'react-router-dom';
+import { useAuthPermissions } from '@monorepo/shared/infrastructure/client';
+
+interface ProtectedRouteProps {
+  permission?: string;
+  children: React.ReactNode;
+  fallback?: string;
+}
+
+export function ProtectedRoute({ permission, children, fallback = '/unauthorized' }: ProtectedRouteProps) {
+  const { isAuthenticated, hasPermission } = useAuthPermissions();
+
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (permission && !hasPermission(permission)) return <Navigate to={fallback} replace />;
+
+  return <>{children}</>;
+}
+```
 
 ```tsx
 // apps/web/src/app/routes/app-router.tsx
-import React from 'react';
-import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom';
-import { Criteria } from '@monorepo/shared/domain';
-import { useDependencies } from '../di/dependency-provider';
-import { RegisterUserContainer, UsersListContainer } from '@monorepo/users/ui';
+import React, { Suspense } from 'react';
+import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
+import { ProtectedRoute } from './protected-route';
+import { UserPermissionEnum } from '@monorepo/users/domain';
 
-const UsersPage: React.FC = () => {
-  const { userRepository } = useDependencies();
-  const navigate = useNavigate();
-
-  return (
-    <div className="container">
-      <nav>
-        <Link to="/">Listado de Usuarios</Link> | <Link to="/register">Registrar Usuario</Link>
-      </nav>
-      <UsersListContainer
-        repository={userRepository}
-        initialCriteria={Criteria.empty()}
-      />
-    </div>
-  );
-};
-
-const RegisterUserPage: React.FC = () => {
-  const { userRepository } = useDependencies();
-  const navigate = useNavigate();
-
-  return (
-    <div className="container">
-      <RegisterUserContainer
-        repository={userRepository}
-        onUserRegistered={() => navigate('/')}
-      />
-    </div>
-  );
-};
+const UsersPage = React.lazy(() => import('@monorepo/users/ui').then(m => ({ default: m.UsersPage })));
 
 export const AppRouter: React.FC = () => {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<UsersPage />} />
-        <Route path="/register" element={<RegisterUserPage />} />
-      </Routes>
+      <header className="app-navigation">
+        <nav>
+          <Link to="/users">Gestión de Usuarios</Link>
+        </nav>
+      </header>
+
+      <Suspense fallback={<div>Cargando...</div>}>
+        <Routes>
+          <Route path="/users" element={
+            <ProtectedRoute permission={UserPermissionEnum.USER_LIST}>
+              <UsersPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/" element={
+            <ProtectedRoute permission={UserPermissionEnum.USER_LIST}>
+              <UsersPage />
+            </ProtectedRoute>
+          } />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 };
@@ -165,30 +147,31 @@ export const AppRouter: React.FC = () => {
 
 ---
 
-### 3.3 Bloque: `main.tsx` & `app.tsx` (Bootstrap de React)
-
-#### `app.tsx`
-* **Nivel:** **[ESTRICTO]**
+### 3.3 Bloque: `app.tsx` & `main.tsx`
 
 ```tsx
 // apps/web/src/app/app.tsx
 import React from 'react';
-import { DependencyProvider } from './di/dependency-provider';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { DependencySetup } from './di/dependency-setup';
 import { AppRouter } from './routes/app-router';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { staleTime: 5 * 60 * 1000, retry: 1 },
+  },
+});
 
 export const App: React.FC = () => {
   return (
-    <DependencyProvider>
-      <AppRouter />
-    </DependencyProvider>
+    <QueryClientProvider client={queryClient}>
+      <DependencySetup>
+        <AppRouter />
+      </DependencySetup>
+    </QueryClientProvider>
   );
 };
 ```
-
----
-
-#### `main.tsx`
-* **Nivel:** **[ESTRICTO]**
 
 ```tsx
 // apps/web/src/main.tsx

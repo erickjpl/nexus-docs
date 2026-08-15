@@ -81,8 +81,8 @@ export interface RegisterUserApiBody {
 ```typescript
 // libs/users/infrastructure/client/src/api/http-user-api.repository.ts
 import { Criteria } from '@monorepo/shared/domain';
-import { HttpClient, CriteriaToHttpParamsConverter } from '@monorepo/shared/infrastructure/client';
-import { User, UserId, UserRepository } from '@monorepo/users/domain';
+import { HttpClient, CriteriaToHttpParamsConverter, HttpError } from '@monorepo/shared/infrastructure/client';
+import { User, UserId, UserRepository, DomainConflictError, InvalidArgumentError } from '@monorepo/users/domain';
 import { UserApiResponse, RegisterUserApiBody } from './dto/user-api.response';
 
 export class HttpUserApiRepository implements UserRepository {
@@ -90,36 +90,55 @@ export class HttpUserApiRepository implements UserRepository {
 
   constructor(private readonly httpClient: HttpClient) {}
 
+  private mapHttpError(error: HttpError): never {
+    switch (error.statusCode) {
+      case 409: throw new DomainConflictError('User already exists');
+      case 422: throw new InvalidArgumentError(error.message);
+      default: throw error;
+    }
+  }
+
   async save(user: User): Promise<void> {
     const body: RegisterUserApiBody = user.toPrimitives();
-    await this.httpClient.put<void>(`${this.endpoint}/${user.id.value}`, body);
+    try {
+      await this.httpClient.put<void>(`${this.endpoint}/${user.id.value}`, body);
+    } catch (error) {
+      if (error instanceof HttpError) this.mapHttpError(error);
+      throw error;
+    }
   }
 
   async search(id: UserId): Promise<User | null> {
     try {
       const response = await this.httpClient.get<UserApiResponse>(`${this.endpoint}/${id.value}`);
-      return User.fromPrimitives(response);
-    } catch (error: any) {
-      if (error?.status === 404) {
+      return User.fromPrimitives(response.data);
+    } catch (error) {
+      if (error instanceof HttpError && error.statusCode === 404) {
         return null;
       }
+      if (error instanceof HttpError) this.mapHttpError(error);
       throw error;
     }
   }
 
   async searchAll(): Promise<Array<User>> {
-    const response = await this.httpClient.get<Array<UserApiResponse>>(this.endpoint);
-    return response.map((item) => User.fromPrimitives(item));
+    const response = await this.httpClient.get<UserApiResponse[]>(this.endpoint);
+    return response.data.map((item) => User.fromPrimitives(item));
   }
 
-  async matching(criteria: Criteria): Promise<Array<User>> {
+  async matching(criteria: Criteria): Promise<{ items: User[]; total: number }> {
     const params = CriteriaToHttpParamsConverter.convert(criteria);
-    const response = await this.httpClient.get<Array<UserApiResponse>>(this.endpoint, { params });
+    const response = await this.httpClient.get<UserApiResponse[]>(this.endpoint, { params });
 
-    return response.map((item) => User.fromPrimitives(item));
+    return {
+      items: response.data.map(User.fromPrimitives),
+      total: response.meta.pagination?.total ?? 0,
+    };
   }
 }
 ```
+
+> **Nota:** La interfaz `HttpClient` extrae automáticamente la propiedad `.data` del `ApiResponse` homogéneo. Para endpoints con paginación, puedes definir el tipo de retorno esperado que incluya la metadata.
 
 ---
 

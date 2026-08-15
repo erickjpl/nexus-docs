@@ -1,53 +1,50 @@
 # Especificación: `libs/{bounded_context}/ui`
 
 Este módulo constituye la **Capa de Presentación e Interfaz de Usuario del Bounded Context** (la capa exterior visual).
-Su responsabilidad es capturar las interacciones del usuario en Web, Mobile o Desktop, invocar los casos de uso o
-repositorios de cliente mediante **Custom Hooks**, y renderizar componentes visuales puros siguiendo el patrón
-**Container / Presentational**.
+Su responsabilidad es estructurar las pantallas mediante una **jerarquía estricta de 4 niveles** (`pages/` → `views/` → `components/` → `schemas/`), validar todos los formularios obligatoriamente con **Zod**, consumir los adaptadores cliente mediante **Custom Hooks**, utilizar **UI Wrappers** agnósticos y gobernar la visibilidad de acciones con la regla **"1 Acción = 1 Permiso Dedicado"**.
 
 ---
 
 ## 1. Directrices Obligatorias de la Capa
 
-* **[ESTRICTO] Cero Reglas de Negocio en la Vista:** Los componentes visuales (`JSX/TSX`) **NUNCA** ejecutan cálculos
-  de negocio, validaciones de invariantes ni formateos arbitrarios de datos. Toda la lógica de presentación reside
-  en los Custom Hooks y el dominio.
-* **[ESTRICTO] Patrón Container / Presentational (Smart vs Dumb):**
-  * **Containers (`*.container.tsx`):** Componentes inteligentes que consumen los hooks, gestionan el estado,
-    conectan rutas y pasan datos y callbacks a las vistas.
-  * **Views (`*.view.tsx`):** Componentes puramente visuales que reciben props y emiten eventos (`onClick`, `onSubmit`).
-* **[ESTRICTO] Dependencias Permitidas:**
-  * `@monorepo/shared/domain` (`type:shared-domain`)
-  * `@monorepo/shared/application` (`type:shared-application`)
-  * `@monorepo/shared/infrastructure/client` (`type:shared-infra-client`)
-  * `@monorepo/{bounded_context}/domain` (`type:domain`)
-  * `@monorepo/{bounded_context}/infrastructure/client` (`type:infra-client`)
-* **[ESTRICTO] Tag de Nx:** Debe estar configurado en `project.json` con `tags: ["type:ui", "scope:{context}"]`.
-* **[ESTRICTO] Prohibición de Servidor:** Prohibido importar módulos de `infrastructure/server`.
+* **[ESTRICTO] Jerarquía de Presentación de 4 Niveles:**
+  1. **`pages/` (Páginas Orquestadoras):** Conectan rutas, estado global (Zustand), mutaciones/consultas asíncronas (TanStack Query) y Custom Hooks.
+  2. **`views/` (Vistas Contenedoras):** Agrupan y orquestan componentes visuales dependientes entre sí (ej. modales, secciones de listados).
+  3. **`components/` (Componentes Puros de Feature):** Componentes visuales específicos de la funcionalidad (ej. `UserCard`, `UserForm`).
+  4. **`schemas/` (Esquemas Zod de Validación):** Definición aislada y tipada con Zod de los esquemas de validación para todos los formularios.
+* **[ESTRICTO] Validación Zod Obligatoria en el 100% de Formularios:** Todo formulario DEBE definir su esquema Zod en `schemas/` y consumirlo mediante React Hook Form (`@hookform/resolvers/zod`).
+* **[ESTRICTO] Desacoplamiento Visual mediante UI Wrappers (`@/shared/components/ui`):** Queda estrictamente **prohibido importar librerías UI de terceros directamente en las features** (ej. `antd`, `mui`, `chakra`). Toda la UI debe construirse con los adaptadores encapsulados (`AppButton`, `AppCard`, `AppForm`, `AppModal`, `AppTable`, `useAppNotification`).
+* **[ESTRICTO] Control de Permisos Atómicos en UI (Cero Falsos Positivos):** Toda acción, botón o elemento que dispare una operación debe consultar el permiso atómico exacto vía Enum (`hasPermission(PermissionEnum.USER_REGISTER)`). Prohibido usar roles globales o strings mágicos para condicionar visibilidad.
+* **[ESTRICTO] Importaciones Absolutas:** Prohibido el uso de rutas relativas multinivel (`../../..`). Toda importación utiliza los alias canónicos `@/*` o `@monorepo/{context}/*`.
+* **[ESTRICTO] Tag de Nx:** Configurado en `project.json` con `tags: ["type:ui", "scope:{context}"]`.
+* **[ESTRICTO] Prohibición de Servidor:** Prohibido importar módulos de `infrastructure/server` o librerías de Node.js / TypeORM.
 
 ---
 
-## 2. Estructura de Directorios
+## 2. Estructura Canónica de Directorios
 
 ```text
 libs/{bounded_context}/ui/
 ├── src/
 │   ├── hooks/
-│   │   ├── use-register-{aggregate}.hook.ts      # [ESTRICTO] Hook para mutaciones de estado con Result Pattern
-│   │   └── use-search-{aggregates}.hook.ts       # [ESTRICTO] Hook para consultas reactivas con Criteria
+│   │   ├── use-register-{aggregate}.hook.ts      # Hook para mutaciones y casos de uso
+│   │   └── use-search-{aggregates}.hook.ts       # Hook para consultas reactivas con Criteria
 │   │
-│   ├── containers/
-│   │   ├── register-{aggregate}.container.tsx    # [ESTRICTO] Smart Component que orquesta creación
-│   │   └── {aggregates}-list.container.tsx       # [ESTRICTO] Smart Component que orquesta listado
+│   ├── pages/                                    # 📄 Nivel 1: Páginas Orquestadoras de Alto Nivel
+│   │   └── {aggregates}-page.tsx                 # Conecta rutas, estado y orquestación
 │   │
-│   ├── views/
-│   │   ├── register-{aggregate}.view.tsx         # [ESTRICTO] Dumb Component para formulario visual
-│   │   └── {aggregates}-list.view.tsx            # [ESTRICTO] Dumb Component para render de lista/grilla
+│   ├── views/                                    # 🖼️ Nivel 2: Vistas Contenedoras Interdependientes
+│   │   ├── register-{aggregate}-modal.view.tsx   # Contenedor de modal y orquestación visual
+│   │   └── {aggregates}-list-section.view.tsx    # Contenedor de listado y filtros
 │   │
-│   ├── components/
-│   │   └── {aggregate}-card.component.tsx        # [OPCIONAL] Componente visual atómico del contexto
+│   ├── components/                               # 🧩 Nivel 3: Componentes Puros y Átomos
+│   │   ├── {aggregate}-form.component.tsx        # Formulario desacoplado con UI Wrappers
+│   │   └── {aggregate}-card.component.tsx        # Tarjeta visual atómica
 │   │
-│   └── index.ts                                  # [ESTRICTO] Barril público de exportación
+│   ├── schemas/                                  # 📐 Nivel 4: Esquemas de Validación Zod
+│   │   └── {aggregate}-form.schema.ts            # Esquema Zod e inferencia de tipos
+│   │
+│   └── index.ts                                  # Barril público de exportación
 ├── project.json
 ├── tsconfig.json
 └── tsconfig.lib.json
@@ -55,246 +52,239 @@ libs/{bounded_context}/ui/
 
 ---
 
-## 3. Especificación Detallada por Componente
+## 3. Especificación Detallada y Ejemplo Canónico
 
-### 3.1 Bloque: `hooks/` (Lógica de Presentación y Estado)
+### 3.1 Nivel 4: Esquema Zod Obligatorio (`schemas/user-form.schema.ts`)
 
-#### `use-register-user.hook.ts`
-* **Nivel:** **[ESTRICTO]**
+```typescript
+// libs/users/ui/src/schemas/user-form.schema.ts
+import { z } from 'zod';
+
+export const userFormSchema = z.object({
+  name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres').max(100),
+  email: z.string().email('Ingrese un correo electrónico válido'),
+  role: z.enum(['admin', 'user', 'manager'], {
+    errorMap: () => ({ message: 'Seleccione un rol válido' }),
+  }).optional().default('user'),
+});
+
+export type UserFormValues = z.infer<typeof userFormSchema>;
+```
+
+---
+
+### 3.2 Nivel 3: Componente Visual Puro con UI Wrappers (`components/user-form.component.tsx`)
+
+```tsx
+// libs/users/ui/src/components/user-form.component.tsx
+import React from 'react';
+import { useForm, UseFormReturn } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { AppButton, AppForm } from '@monorepo/shared/infrastructure/client';
+import { userFormSchema, UserFormValues } from '../schemas/user-form.schema';
+
+export interface UserFormComponentProps {
+  onSubmit: (values: UserFormValues, form: UseFormReturn<UserFormValues>) => void;
+  isLoading?: boolean;
+  initialValues?: Partial<UserFormValues>;
+}
+
+export const UserFormComponent: React.FC<UserFormComponentProps> = ({
+  onSubmit,
+  isLoading = false,
+  initialValues,
+}) => {
+  const form = useForm<UserFormValues>({
+    resolver: zodResolver(userFormSchema),
+    defaultValues: initialValues,
+  });
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = form;
+
+  return (
+    <AppForm onSubmit={handleSubmit((values) => onSubmit(values, form))}>
+      <AppForm.Item label="Nombre Completo" error={errors.name?.message}>
+        <input {...register('name')} placeholder="Ej. Juan Pérez" />
+      </AppForm.Item>
+
+      <AppForm.Item label="Correo Electrónico" error={errors.email?.message}>
+        <input {...register('email')} type="email" placeholder="juan@ejemplo.com" />
+      </AppForm.Item>
+
+      <AppButton type="submit" variant="primary" loading={isLoading}>
+        Guardar Usuario
+      </AppButton>
+    </AppForm>
+  );
+};
+```
+
+---
+
+### 3.3 Nivel 2: Vista Contenedora (`views/register-user-modal.view.tsx`)
+
+```tsx
+// libs/users/ui/src/views/register-user-modal.view.tsx
+import React from 'react';
+import { UseFormReturn } from 'react-hook-form';
+import { AppModal } from '@monorepo/shared/infrastructure/client';
+import { UserFormComponent } from '../components/user-form.component';
+import { UserFormValues } from '../schemas/user-form.schema';
+
+export interface RegisterUserModalViewProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (values: UserFormValues, form: UseFormReturn<UserFormValues>) => void;
+  isLoading?: boolean;
+}
+
+export const RegisterUserModalView: React.FC<RegisterUserModalViewProps> = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  isLoading,
+}) => {
+  return (
+    <AppModal title="Registrar Nuevo Usuario" open={isOpen} onClose={onClose}>
+      <UserFormComponent onSubmit={onSubmit} isLoading={isLoading} />
+    </AppModal>
+  );
+};
+```
+
+---
+
+### 3.4 Nivel 1: Página Orquestadora con Permisos Atómicos (`pages/users-page.tsx`)
+
+```tsx
+// libs/users/ui/src/pages/users-page.tsx
+import React, { useState } from 'react';
+import { UseFormReturn } from 'react-hook-form';
+import { AppButton, AppTable, useAppNotification, useAuthPermissions } from '@monorepo/shared/infrastructure/client';
+import { UserPermissionEnum } from '@monorepo/users/domain';
+import { useRegisterUser } from '../hooks/use-register-user.hook';
+import { useSearchUsers } from '../hooks/use-search-users.hook';
+import { RegisterUserModalView } from '../views/register-user-modal.view';
+import { UserFormValues } from '../schemas/user-form.schema';
+
+export const UsersPage: React.FC = () => {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const { hasPermission } = useAuthPermissions();
+  const { message } = useAppNotification();
+  
+  const { data: users, isLoading } = useSearchUsers();
+  const { mutate: registerUser, isPending: isRegistering } = useRegisterUser();
+
+  const handleRegisterSubmit = (values: UserFormValues, form: UseFormReturn<UserFormValues>) => {
+    registerUser(values, {
+      onSuccess: () => {
+        message.success('Usuario registrado con éxito');
+        setIsModalOpen(false);
+      },
+      onError: (error: any) => {
+        message.error('Error al registrar el usuario');
+        if (error.response?.meta?.code === 422 && error.response?.errors) {
+          Object.entries(error.response.errors).forEach(([field, messages]) => {
+            form.setError(field as keyof UserFormValues, {
+              type: 'server',
+              message: (messages as string[])[0],
+            });
+          });
+        }
+      }
+    });
+  };
+
+  return (
+    <div className="page-container">
+      <header className="page-header">
+        <h1>Gestión de Usuarios</h1>
+        
+        {/* Regla de Oro: 1 Acción = 1 Permiso Dedicado (Enum) */}
+        {hasPermission(UserPermissionEnum.USER_CREATE) && (
+          <AppButton variant="primary" onClick={() => setIsModalOpen(true)}>
+            Nuevo Usuario
+          </AppButton>
+        )}
+      </header>
+
+      <main>
+        <AppTable
+          dataSource={users || []}
+          loading={isLoading}
+          rowKey="id"
+          columns={[
+            { title: 'ID', dataIndex: 'id' },
+            { title: 'Nombre', dataIndex: 'name' },
+            { title: 'Email', dataIndex: 'email' },
+          ]}
+        />
+      </main>
+
+      <RegisterUserModalView
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSubmit={handleRegisterSubmit}
+        isLoading={isRegistering}
+      />
+    </div>
+  );
+};
+```
+
+---
+
+### 3.5 Hooks de Caso de Uso (`hooks/use-register-user.hook.ts`)
 
 ```typescript
 // libs/users/ui/src/hooks/use-register-user.hook.ts
-import { useState } from 'react';
-import { DomainException } from '@monorepo/shared/domain';
-import { User, UserId, UserName, UserEmail, UserRepository } from '@monorepo/users/domain';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useRepository } from '@monorepo/shared/infrastructure/client';
+import { UserRepository, User, UserId, UserName, UserEmail } from '@monorepo/users/domain';
+import { UserFormValues } from '../schemas/user-form.schema';
 
-export interface RegisterUserInput {
-  id: string;
-  name: string;
-  email: string;
-}
+export function useRegisterUser() {
+  const repository = useRepository<UserRepository>('userRepository');
+  const queryClient = useQueryClient();
 
-export function useRegisterUser(repository: UserRepository) {
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isSuccess, setIsSuccess] = useState<boolean>(false);
-
-  const registerUser = async (input: RegisterUserInput): Promise<boolean> => {
-    setIsLoading(true);
-    setError(null);
-    setIsSuccess(false);
-
-    try {
-      // 1. Validación temprana de invariantes con Value Objects
-      const id = new UserId(input.id);
-      const name = new UserName(input.name);
-      const email = new UserEmail(input.email);
-
-      // 2. Instanciación limpia del modelo para transporte por el repositorio cliente
-      const user = new User(id, name, email);
-
-      // 3. Envío al backend a través del repositorio HTTP
+  return useMutation({
+    mutationFn: async (values: UserFormValues) => {
+      const user = User.create(
+        new UserId(crypto.randomUUID()),
+        new UserName(values.name),
+        new UserEmail(values.email)
+      );
       await repository.save(user);
-
-      setIsSuccess(true);
-      return true;
-    } catch (err: unknown) {
-      if (err instanceof DomainException || err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Error inesperado al registrar el usuario');
-      }
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return {
-    registerUser,
-    isLoading,
-    error,
-    isSuccess
-  };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+  });
 }
 ```
 
 ---
 
-#### `use-search-users.hook.ts`
-* **Nivel:** **[ESTRICTO]**
+### 3.6 Hook de Consulta con TanStack Query (`hooks/use-search-users.hook.ts`)
 
 ```typescript
 // libs/users/ui/src/hooks/use-search-users.hook.ts
-import { useState, useEffect, useCallback } from 'react';
-import { Criteria } from '@monorepo/shared/domain';
-import { User, UserRepository } from '@monorepo/users/domain';
+import { useQuery } from '@tanstack/react-query';
+import { useRepository } from '@monorepo/shared/infrastructure/client';
+import { UserRepository, Criteria } from '@monorepo/users/domain';
 
-export function useSearchUsers(repository: UserRepository, initialCriteria?: Criteria) {
-  const [users, setUsers] = useState<Array<User>>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+export function useSearchUsers(criteria?: Criteria) {
+  const repository = useRepository<UserRepository>('userRepository');
 
-  const fetchUsers = useCallback(async (criteriaToSearch: Criteria) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const result = await repository.matching(criteriaToSearch);
-      setUsers(result);
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Error al cargar los usuarios');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [repository]);
-
-  useEffect(() => {
-    fetchUsers(initialCriteria ?? Criteria.empty());
-  }, [fetchUsers, initialCriteria]);
-
-  return {
-    users,
-    isLoading,
-    error,
-    refetch: fetchUsers
-  };
-}
-```
-
----
-
-### 3.2 Bloque: `views/` (Componentes Presentacionales Puros)
-
-#### `register-user.view.tsx`
-* **Nivel:** **[ESTRICTO]**
-
-```tsx
-// libs/users/ui/src/views/register-user.view.tsx
-import React, { useState } from 'react';
-
-export interface RegisterUserFormData {
-  id: string;
-  name: string;
-  email: string;
-}
-
-export interface RegisterUserViewProps {
-  onSubmit: (data: RegisterUserFormData) => void;
-  isLoading: boolean;
-  errorMessage: string | null;
-  isSuccess: boolean;
-}
-
-export const RegisterUserView: React.FC<RegisterUserViewProps> = ({
-  onSubmit,
-  isLoading,
-  errorMessage,
-  isSuccess
-}) => {
-  const [formData, setFormData] = useState<RegisterUserFormData>({
-    id: '',
-    name: '',
-    email: ''
+  return useQuery({
+    queryKey: ['users', criteria],
+    queryFn: () => repository.matching(criteria ?? Criteria.empty()),
   });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit(formData);
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="user-form">
-      <h2>Registrar Nuevo Usuario</h2>
-
-      {errorMessage && <div className="error-alert">{errorMessage}</div>}
-      {isSuccess && <div className="success-alert">¡Usuario registrado exitosamente!</div>}
-
-      <div className="form-group">
-        <label htmlFor="user-id">ID del Usuario (UUID):</label>
-        <input
-          id="user-id"
-          type="text"
-          value={formData.id}
-          onChange={(e) => setFormData({ ...formData, id: e.target.value })}
-          required
-        />
-      </div>
-
-      <div className="form-group">
-        <label htmlFor="user-name">Nombre:</label>
-        <input
-          id="user-name"
-          type="text"
-          value={formData.name}
-          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-          required
-        />
-      </div>
-
-      <div className="form-group">
-        <label htmlFor="user-email">Correo Electrónico:</label>
-        <input
-          id="user-email"
-          type="email"
-          value={formData.email}
-          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-          required
-        />
-      </div>
-
-      <button type="submit" disabled={isLoading}>
-        {isLoading ? 'Guardando...' : 'Registrar Usuario'}
-      </button>
-    </form>
-  );
-};
-```
-
----
-
-### 3.3 Bloque: `containers/` (Smart Components)
-
-#### `register-user.container.tsx`
-* **Nivel:** **[ESTRICTO]**
-
-```tsx
-// libs/users/ui/src/containers/register-user.container.tsx
-import React from 'react';
-import { UserRepository } from '@monorepo/users/domain';
-import { useRegisterUser } from '../hooks/use-register-user.hook';
-import { RegisterUserView, RegisterUserFormData } from '../views/register-user.view';
-
-export interface RegisterUserContainerProps {
-  repository: UserRepository;
-  onUserRegistered?: () => void;
 }
-
-export const RegisterUserContainer: React.FC<RegisterUserContainerProps> = ({
-  repository,
-  onUserRegistered
-}) => {
-  const { registerUser, isLoading, error, isSuccess } = useRegisterUser(repository);
-
-  const handleSubmit = async (data: RegisterUserFormData) => {
-    const success = await registerUser(data);
-    if (success && onUserRegistered) {
-      onUserRegistered();
-    }
-  };
-
-  return (
-    <RegisterUserView
-      onSubmit={handleSubmit}
-      isLoading={isLoading}
-      errorMessage={error}
-      isSuccess={isSuccess}
-    />
-  );
-};
 ```
 
 ---
@@ -303,12 +293,10 @@ export const RegisterUserContainer: React.FC<RegisterUserContainerProps> = ({
 
 ```typescript
 // libs/{bounded_context}/ui/src/index.ts
+export * from './schemas/user-form.schema';
+export * from './components/user-form.component';
+export * from './views/register-user-modal.view';
+export * from './pages/users-page';
 export * from './hooks/use-register-user.hook';
 export * from './hooks/use-search-users.hook';
-
-export * from './views/register-user.view';
-export * from './views/users-list.view';
-
-export * from './containers/register-user.container';
-export * from './containers/users-list.container';
 ```

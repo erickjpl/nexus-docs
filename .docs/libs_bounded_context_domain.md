@@ -182,6 +182,23 @@ export class UserEmail extends StringValueObject {
 }
 ```
 
+#### `{entity}.entity.ts`
+* **Nivel:** **[OPCIONAL]**
+
+```typescript
+// libs/users/domain/src/model/user-profile.entity.ts
+import { Entity } from '@monorepo/shared/domain';
+
+export class UserProfile extends Entity {
+  constructor(
+    readonly bio: string,
+    readonly avatar: string | null,
+  ) { super(); }
+}
+```
+
+> **Convención de Visibilidad:** Todos los campos mutables en Agregados y Entidades deben ser `private` y expuestos únicamente a través de getters (o actualizados a través de métodos de dominio). El identificador `id` puede ser `readonly` público ya que nunca cambia una vez instanciado el objeto.
+
 ---
 
 ### 3.2 Bloque: `events/`
@@ -294,7 +311,19 @@ export interface UserRepository {
   save(user: User): Promise<void>;
   search(id: UserId): Promise<User | null>;
   searchAll(): Promise<Array<User>>;
-  matching(criteria: Criteria): Promise<Array<User>>;
+  matching(criteria: Criteria): Promise<{ items: Array<User>; total: number }>;
+}
+```
+
+#### `{external-contract}.port.ts`
+* **Nivel:** **[OPCIONAL]**
+* **Por qué existe:** Contrato para abstracciones externas requeridas por el dominio (por ejemplo, hashing).
+
+```typescript
+// libs/users/domain/src/ports/services/password-hasher.port.ts
+export interface PasswordHasherPort {
+  hash(plainPassword: string): Promise<string>;
+  compare(plainPassword: string, hashedPassword: string): Promise<boolean>;
 }
 ```
 
