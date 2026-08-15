@@ -24,46 +24,46 @@ Si vas a escribir código o realizar cambios en este repositorio, debés seguir 
 
 ---
 
-## 2. Matriz de Enrutamiento (Tarea $\rightarrow$ Documento)
+## 2. Matriz de Enrutamiento (Tarea → Documento)
 
 * **Metodología GitFlow, Scoped Labels, Convención de Commits y Releases:**
-  $\rightarrow$ [`governance_gitflow.md`](./governance_gitflow.md)
+  → [`governance_gitflow.md`](./governance_gitflow.md)
 * **Arquitectura global, Onion, CQRS, EDA o ciclo de eventos:**
-  $\rightarrow$ [`architectural_documentation.md`](./architectural_documentation.md)
+  → [`architectural_documentation.md`](./architectural_documentation.md)
 * **Clases base del núcleo (`AggregateRoot`, `ValueObject`, `Criteria`, `Result`):**
-  $\rightarrow$ [`libs_shared_domain.md`](./libs_shared_domain.md)
+  → [`libs_shared_domain.md`](./libs_shared_domain.md)
 * **Abstracciones universales de CQRS (`Command`, `Query`, `CommandBus`):**
-  $\rightarrow$ [`libs_shared_application.md`](./libs_shared_application.md)
+  → [`libs_shared_application.md`](./libs_shared_application.md)
 * **Buses de servidor, RabbitMQ, Criteria Converters y NestJS global:**
-  $\rightarrow$ [`libs_shared_infrastructure_server.md`](./libs_shared_infrastructure_server.md)
+  → [`libs_shared_infrastructure_server.md`](./libs_shared_infrastructure_server.md)
 * **Clientes HTTP (`FetchHttpClient`), storage o buses de UI:**
-  $\rightarrow$ [`libs_shared_infrastructure_client.md`](./libs_shared_infrastructure_client.md)
+  → [`libs_shared_infrastructure_client.md`](./libs_shared_infrastructure_client.md)
 * **Utilidades de test globales (`MotherCreator`, Faker, Mocks base):**
-  $\rightarrow$ [`libs_shared_testing.md`](./libs_shared_testing.md)
+  → [`libs_shared_testing.md`](./libs_shared_testing.md)
 * **Agregados, Value Objects, Domain Events o Puertos de Repositorio:**
-  $\rightarrow$ [`libs_bounded_context_domain.md`](./libs_bounded_context_domain.md)
+  → [`libs_bounded_context_domain.md`](./libs_bounded_context_domain.md)
 * **Casos de uso (Vertical Slices: Commands, Handlers, Queries, DTOs):**
-  $\rightarrow$ [`libs_bounded_context_application.md`](./libs_bounded_context_application.md)
+  → [`libs_bounded_context_application.md`](./libs_bounded_context_application.md)
 * **Esquemas TypeORM (`EntitySchema`), Mappers, Controllers o Providers:**
-  $\rightarrow$ [`libs_bounded_context_infrastructure_server.md`](./libs_bounded_context_infrastructure_server.md)
+  → [`libs_bounded_context_infrastructure_server.md`](./libs_bounded_context_infrastructure_server.md)
 * **Repositorios HTTP de cliente para consumir APIs desde frontend:**
-  $\rightarrow$ [`libs_bounded_context_infrastructure_client.md`](./libs_bounded_context_infrastructure_client.md)
+  → [`libs_bounded_context_infrastructure_client.md`](./libs_bounded_context_infrastructure_client.md)
 * **Custom Hooks, Vistas presentacionales (`*.view.tsx`) o Contenedores UI:**
-  $\rightarrow$ [`libs_bounded_context_ui.md`](./libs_bounded_context_ui.md)
+  → [`libs_bounded_context_ui.md`](./libs_bounded_context_ui.md)
 * **Tests unitarios con Object Mothers y Mocks del contexto:**
-  $\rightarrow$ [`libs_bounded_context_testing.md`](./libs_bounded_context_testing.md)
+  → [`libs_bounded_context_testing.md`](./libs_bounded_context_testing.md)
 * **Bootstrap Backend NestJS, filtros de excepción o `app.module.ts`:**
-  $\rightarrow$ [`apps_api.md`](./apps_api.md)
+  → [`apps_api.md`](./apps_api.md)
 * **Bootstrap Web React, rutas React Router o `DependencyProvider`:**
-  $\rightarrow$ [`apps_web.md`](./apps_web.md)
+  → [`apps_web.md`](./apps_web.md)
 * **Bootstrap Mobile (Expo/RN), navegación o storage nativo:**
-  $\rightarrow$ [`apps_mobile.md`](./apps_mobile.md)
+  → [`apps_mobile.md`](./apps_mobile.md)
 * **Main Process Electron, script `preload.ts` o ventana desktop:**
-  $\rightarrow$ [`apps_desktop.md`](./apps_desktop.md)
+  → [`apps_desktop.md`](./apps_desktop.md)
 * **Configuración de tags Nx y reglas `@nx/enforce-module-boundaries`:**
-  $\rightarrow$ [`governance_nx_boundaries.md`](./governance_nx_boundaries.md)
+  → [`governance_nx_boundaries.md`](./governance_nx_boundaries.md)
 * **Generadores Nx automáticos para nuevos contextos o slices:**
-  $\rightarrow$ [`tools_generators.md`](./tools_generators.md)
+  → [`tools_generators.md`](./tools_generators.md)
 
 ---
 

@@ -105,12 +105,17 @@ aislado de otros contextos.
   compartidos mediante contratos públicos.
 
 ### Transactional Outbox & Eventual Consistency
-Patrón para garantizar que la persistencia del agregado y la publicación de sus eventos de dominio sean atómicas
-(ambas se ejecutan o ambas fallan).
+Patrón para garantizar que la persistencia del agregado y el registro de sus eventos de dominio sean atómicos
+(ambas operaciones se ejecutan dentro de la misma transacción de base de datos o ambas fallan).
 * **Por qué existe:** En sistemas distribuidos, si se guarda en la base de datos pero el broker de mensajería
   está caído, se pierden eventos y se produce inconsistencia de datos (Dual-Write Problem).
-* **Comportamiento exigido:** Los eventos se persisten transaccionalmente junto con el estado del agregado en una
-  tabla/colección Outbox, o se despachan mediante un `FailoverPublisher` que reintenta en caso de fallo de red.
+* **Comportamiento exigido:**
+  * **Persistencia Atómica:** La capa de persistencia guarda el estado del agregado y sus eventos de dominio en
+    una tabla/colección `outbox` dentro de la misma transacción de base de datos (`UnitOfWork`).
+  * **Despacho Seguro:** El `EventBus` o un proceso en segundo plano (*Outbox Publisher / Relay*) despacha los
+    eventos hacia el broker de mensajería (RabbitMQ/Redis) y marca los eventos como procesados.
+  * **Failover:** En caso de caída del broker, el `FailoverPublisher` reintenta de forma diferida garantizando entrega
+    *al menos una vez* (*at-least-once delivery*).
 
 ---
 
@@ -266,9 +271,10 @@ SendGrid, almacenamiento en AWS S3, pasarelas de pago, logs).
   NestJS ni librerías de servidor.
 
 ### Capa 5: `ui/` (Presentación Multiplataforma)
-* **Contenido:** Componentes visuales (React / React Native), Custom Hooks con Result Pattern, contenedores de estado.
-* **Regla estricta:** La UI nunca ejecuta reglas de negocio; captura eventos del usuario y delega a los casos de
-  uso o adaptadores de cliente.
+* **Contenido:** Componentes visuales (React / React Native), Custom Hooks con manejo de estado, contenedores de estado.
+* **Regla estricta:** La UI nunca ejecuta reglas de negocio ni instancia agregados de dominio directamente;
+  captura eventos del usuario, valida esquemas de formulario en capa de presentación y delega a través de
+  Custom Hooks hacia los adaptadores de cliente (`infrastructure/client/`) o casos de uso frontend mediante DTOs.
 
 ---
 
@@ -324,9 +330,11 @@ Para no contaminar la capa de aplicación con `@Injectable()` ni `@Inject()` de 
 export class UserNestModule {}
 ```
 
-### Manejo de Errores: Either / Result Pattern
-Patrón funcional donde las funciones devuelven explícitamente un tipo `Result<Success, Failure>` en lugar de
-lanzar excepciones incontroladas (`throw`).
+### Manejo de Errores: Either / Result Pattern y Excepciones Tipadas
+Se soportan dos patrones limpios y complementarios:
+1. **Result Pattern (`Result<T, Failure>`):** Para flujos funcionales donde los errores son valores esperados.
+2. **Excepciones de Dominio Tipadas (`DomainException`):** Para invariantes violadas en Value Objects y Agregados,
+   capturadas limpiamente por `DomainExceptionFilter` mediante `instanceof`.
 
 ### Wrappers (Empaquetadores de Terceros)
 Encapsula cualquier SDK o librería externa detrás de una interfaz propia de la organización.
@@ -351,16 +359,16 @@ Reglas en `.eslintrc.json` / `eslint.config.js` que validan estáticamente las i
 | :--- | :--- | :--- |
 | `type:domain` | `type:shared-domain` | `type:application`, `type:infra-*`, `type:ui` |
 | `type:application` | `type:domain`, `type:shared-domain`, `type:shared-application` | `type:infra-*`, `type:ui` |
-| `type:infra-server` | `type:domain`, `type:application`, `type:shared-*` | `type:ui`, `type:infra-client` |
-| `type:infra-client` | `type:domain`, `type:application`, `type:shared-domain` | `type:infra-server` |
-| `type:ui` | `type:application`, `type:infra-client`, `type:shared-*` | `type:infra-server` |
+| `type:infra-server` | `type:domain`, `type:application`, `type:shared-domain`, `type:shared-application`, `type:shared-infra-server` | `type:ui`, `type:infra-client` |
+| `type:infra-client` | `type:domain`, `type:application`, `type:shared-domain`, `type:shared-infra-client` | `type:infra-server` |
+| `type:ui` | `type:domain`, `type:application`, `type:infra-client`, `type:shared-domain`, `type:shared-infra-client` | `type:infra-server` |
 
 ---
 
 ## 7. Estrategia de Testing Multi-Capa
 
 ### TDD (Test-Driven Development)
-Ciclo de desarrollo: **Red** (test que falla) $\rightarrow$ **Green** (código mínimo) $\rightarrow$ **Refactor**.
+Ciclo de desarrollo: **Red** (test que falla) → **Green** (código mínimo) → **Refactor**.
 
 ### Object Mother Pattern & Mocking Semántico
 Patrón para la creación de datos de prueba deterministas y aleatorios mediante clases dedicadas:

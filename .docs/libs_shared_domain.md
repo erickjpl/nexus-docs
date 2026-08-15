@@ -32,8 +32,13 @@ libs/shared/domain/
 │   │   ├── string.vo.ts                  # [ESTRICTO] VO base para tipos string
 │   │   ├── number.vo.ts                  # [ESTRICTO] VO base para tipos numéricos
 │   │   ├── uuid.vo.ts                    # [ESTRICTO] VO especializado para identificadores únicos
-│   │   ├── enum.vo.ts                    # [ESTRICTO] VO base para enumeraciones tipadas
-│   │   └── invalid-argument.error.ts     # [ESTRICTO] Error arrojado ante violación de invariantes de VOs
+│   │   └── enum.vo.ts                    # [ESTRICTO] VO base para enumeraciones tipadas
+│   │
+│   ├── exceptions/
+│   │   ├── domain.exception.ts           # [ESTRICTO] Clase base para todas las excepciones de dominio
+│   │   ├── invalid-argument.error.ts     # [ESTRICTO] Error arrojado ante violación de invariantes de VOs
+│   │   ├── domain-not-found.error.ts     # [ESTRICTO] Error cuando un agregado o recurso de negocio no existe
+│   │   └── domain-conflict.error.ts      # [ESTRICTO] Error ante conflictos de reglas (duplicados, estado incompatible)
 │   │
 │   ├── event/
 │   │   ├── domain-event.ts               # [ESTRICTO] Clase base abstracta de eventos de dominio
@@ -41,7 +46,7 @@ libs/shared/domain/
 │   │   └── domain-event-class.ts         # [ESTRICTO] Tipo para la referencia estática de eventos
 │   │
 │   ├── criteria/
-│   │   ├── criteria.ts                   # [ESTRICTO] Raíz de la especificación de consulta
+│   │   ├── criteria.ts                   # [ESTRICTO] Raíz de la especificación de consulta (con factory Criteria.empty())
 │   │   ├── filter.ts                     # [ESTRICTO] Contenedor de un filtro individual
 │   │   ├── filters.ts                    # [ESTRICTO] Colección inmutable de filtros
 │   │   ├── filter-field.ts               # [ESTRICTO] Campo a filtrar (Value Object)
@@ -52,8 +57,8 @@ libs/shared/domain/
 │   │   └── order-type.ts                 # [ESTRICTO] Dirección del orden: ASC, DESC, NONE (Enum VO)
 │   │
 │   ├── bus/
-│   │   ├── command-bus.ts                # [ESTRICTO] Interfaz del bus de comandos
-│   │   ├── query-bus.ts                  # [ESTRICTO] Interfaz del bus de consultas
+│   │   ├── command-bus.ts                # [ESTRICTO] Interfaz del bus de comandos tipado
+│   │   ├── query-bus.ts                  # [ESTRICTO] Interfaz del bus de consultas tipado
 │   │   └── event-bus.ts                  # [ESTRICTO] Interfaz del bus de eventos de dominio
 │   │
 │   ├── result/
@@ -142,20 +147,20 @@ export abstract class Entity<T extends ValueObject<any>> {
 * **Por qué existe:** Elimina el antipatrón de *Primitive Obsession*. Garantiza que ningún dato entre al sistema en un
   estado inválido y modela atributos por su valor, no por identidad.
 * **Comportamiento exigido:**
-  * La propiedad `readonly value: T` debe ser de solo lectura.
-  * Valida invariantes en el momento de la construcción.
+  * La propiedad `readonly value: T` debe ser de solo lectura e inmutable.
+  * Valida invariantes antes de asignar y congelar el estado.
   * `equals(other: ValueObject<T>): boolean`: Compara por valor profundo o primitivo.
   * `toString(): string`: Representación en texto para logs y serialización.
 
 ```typescript
-import { InvalidArgumentError } from './invalid-argument.error';
+import { InvalidArgumentError } from '../exceptions/invalid-argument.error';
 
 export abstract class ValueObject<T extends Object | string | number | boolean> {
   readonly value: T;
 
   constructor(value: T) {
-    this.value = Object.freeze(value);
     this.ensureValueIsDefined(value);
+    this.value = Object.freeze(value);
   }
 
   private ensureValueIsDefined(value: T): void {
@@ -186,11 +191,12 @@ export abstract class ValueObject<T extends Object | string | number | boolean> 
 * **Por qué existe:** Estandariza los identificadores únicos en todo el sistema.
 * **Comportamiento exigido:**
   * Valida formato UUID v4 estricto mediante regex.
-  * `static random(): Uuid`: Fábrica estática para generar nuevos identificadores criptográficamente seguros.
+  * `static random(): Uuid`: Fábrica estática para generar nuevos identificadores criptográficamente seguros
+    utilizando el estándar Web Crypto API (`crypto.randomUUID()`).
 
 ```typescript
 import { ValueObject } from './value-object';
-import { InvalidArgumentError } from './invalid-argument.error';
+import { InvalidArgumentError } from '../exceptions/invalid-argument.error';
 
 export class Uuid extends ValueObject<string> {
   private static readonly UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -201,14 +207,10 @@ export class Uuid extends ValueObject<string> {
   }
 
   static random(): Uuid {
-    const randomUuid = typeof crypto !== 'undefined' && crypto.randomUUID
-      ? crypto.randomUUID()
-      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-          const r = (Math.random() * 16) | 0;
-          const v = c === 'x' ? r : (r & 0x3) | 0x8;
-          return v.toString(16);
-        });
-    return new (this as any)(randomUuid);
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return new (this as any)(crypto.randomUUID());
+    }
+    throw new Error('Cryptographically secure crypto.randomUUID() is required in the runtime environment');
   }
 
   private ensureIsValidUuid(id: string): void {
@@ -231,7 +233,7 @@ export class Uuid extends ValueObject<string> {
 
 ```typescript
 import { ValueObject } from './value-object';
-import { InvalidArgumentError } from './invalid-argument.error';
+import { InvalidArgumentError } from '../exceptions/invalid-argument.error';
 
 export abstract class EnumValueObject<T extends string | number> extends ValueObject<T> {
   constructor(value: T, readonly validValues: T[]) {
@@ -251,7 +253,35 @@ export abstract class EnumValueObject<T extends string | number> extends ValueOb
 
 ---
 
-### 3.3 Bloque: `event/`
+### 3.3 Bloque: `exceptions/` (Jerarquía Tipada de Errores de Dominio)
+
+* **Por qué existe:** Define una jerarquía de errores de dominio de TypeScript puro que permite a los filtros de
+  infraestructura (como `DomainExceptionFilter`) capturar y traducir errores con `instanceof`, eliminando el
+  frágil antipatrón de comparar nombres de error con strings.
+
+```typescript
+// domain.exception.ts
+export abstract class DomainException extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = this.constructor.name;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+// invalid-argument.error.ts
+export class InvalidArgumentError extends DomainException {}
+
+// domain-not-found.error.ts
+export class DomainNotFoundError extends DomainException {}
+
+// domain-conflict.error.ts
+export class DomainConflictError extends DomainException {}
+```
+
+---
+
+### 3.4 Bloque: `event/`
 
 #### `domain-event.ts`
 * **Nivel:** **[ESTRICTO]**
@@ -313,7 +343,7 @@ export interface DomainEventSubscriber<T extends DomainEvent> {
 
 ---
 
-### 3.4 Bloque: `criteria/` (Specification Pattern)
+### 3.5 Bloque: `criteria/` (Specification Pattern)
 
 * **Por qué existe:** Permite que los casos de uso soliciten colecciones dinámicas filtradas, ordenadas y paginadas
   sin acoplarse a SQL, sintaxis de TypeORM, MongoDB Query Filters ni ElasticSearch DSL.
@@ -369,6 +399,19 @@ export class Filter {
 ```
 
 ```typescript
+// filters.ts
+export class Filters {
+  constructor(readonly filters: Array<Filter>) {}
+
+  static fromValues(values: Array<Map<string, string>>): Filters {
+    return new Filters(values.map((filterValues) => Filter.fromValues(filterValues)));
+  }
+
+  static empty(): Filters {
+    return new Filters([]);
+  }
+}
+
 // criteria.ts
 export class Criteria {
   constructor(
@@ -377,6 +420,10 @@ export class Criteria {
     readonly limit?: number,
     readonly offset?: number
   ) {}
+
+  static empty(): Criteria {
+    return new Criteria(Filters.empty(), Order.none());
+  }
 
   hasFilters(): boolean {
     return this.filters.filters.length > 0;
@@ -390,21 +437,29 @@ export class Criteria {
 
 ---
 
-### 3.5 Bloque: `bus/`
+### 3.6 Bloque: `bus/`
 
 * **Nivel:** **[ESTRICTO]**
 * **Por qué existe:** Define los contratos abstractos de mensajería sincrónica y asincrónica para desacoplar los
-  emisores de los receptores.
+  emisores de los receptores con tipado estricto.
 
 ```typescript
 // command-bus.ts
+export interface Command {
+  // Marker interface para comandos
+}
+
 export interface CommandBus {
-  dispatch(command: any): Promise<void>;
+  dispatch<C extends Command = Command>(command: C): Promise<void>;
 }
 
 // query-bus.ts
+export interface Query {
+  // Marker interface para queries
+}
+
 export interface QueryBus {
-  ask<R>(query: any): Promise<R>;
+  ask<R, Q extends Query = Query>(query: Q): Promise<R>;
 }
 
 // event-bus.ts
@@ -419,7 +474,7 @@ export interface EventBus {
 
 ---
 
-### 3.6 Bloque: `result/` (Either / Result Pattern)
+### 3.7 Bloque: `result/` (Either / Result Pattern)
 
 * **Nivel:** **[ESTRICTO]**
 * **Por qué existe:** Modela el resultado de operaciones de dominio de forma determinista y tipada. Obliga a que los
@@ -492,7 +547,11 @@ export * from './value-object/string.vo';
 export * from './value-object/number.vo';
 export * from './value-object/uuid.vo';
 export * from './value-object/enum.vo';
-export * from './value-object/invalid-argument.error';
+
+export * from './exceptions/domain.exception';
+export * from './exceptions/invalid-argument.error';
+export * from './exceptions/domain-not-found.error';
+export * from './exceptions/domain-conflict.error';
 
 export * from './event/domain-event';
 export * from './event/domain-event-subscriber';

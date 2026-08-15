@@ -133,9 +133,9 @@ export function useMobileDependencies(): MobileDependencies {
 // apps/mobile/src/app/navigation/app-navigator.tsx
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { Criteria } from '@monorepo/shared/domain';
 import { useMobileDependencies } from '../di/mobile-dependency-provider';
 import { RegisterUserContainer, UsersListContainer } from '@monorepo/users/ui';
-import { CriteriaMother } from '@monorepo/shared/testing';
 
 export type RootStackParamList = {
   UsersList: undefined;
@@ -149,7 +149,7 @@ function UsersListScreen() {
   return (
     <UsersListContainer
       repository={userRepository}
-      initialCriteria={CriteriaMother.empty()}
+      initialCriteria={Criteria.empty()}
     />
   );
 }

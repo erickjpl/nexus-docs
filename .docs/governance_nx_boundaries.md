@@ -35,15 +35,15 @@ array `tags`:
 | `type:shared-infra-client`| `type:shared-domain`, `type:shared-application` | `type:shared-infra-server` |
 | `type:shared-testing` | `type:shared-domain`, `type:shared-application` | Código de producción. |
 | `type:domain` | `type:shared-domain` | `type:application`, `type:infra-*`, `type:ui`, otros `scope:*`. |
-| `type:application` | `type:domain`, `type:shared-domain`, `type:shared-app` | `type:infra-*`, `type:ui`, `scope:*` |
-| `type:infra-server` | `type:domain`, `type:application`, `type:shared-*` | `type:ui`, `type:infra-client`, apps |
-| `type:infra-client` | `type:domain`, `type:application`, `type:shared-*` | `type:infra-server` |
-| `type:ui` | `type:domain`, `type:application`, `type:infra-client`, `type:shared-*` | `type:infra-server` |
-| `type:testing` | `type:domain`, `type:application`, `type:shared-*` | Código de producción. |
-| `type:app-backend` | `type:infra-server`, `type:shared-infra-server` | `type:ui`, `type:infra-client`, frontend |
-| `type:app-frontend` | `type:ui`, `type:infra-client`, `type:shared-*` | `type:infra-server`, `type:app-backend` |
-| `type:app-mobile` | `type:ui`, `type:infra-client`, `type:shared-infra-client` | `type:infra-server`, paquetes web |
-| `type:app-desktop` | `type:ui`, `type:infra-client`, `type:shared-infra-client` | `type:infra-server` |
+| `type:application` | `type:domain`, `type:shared-domain`, `type:shared-application` | `type:infra-*`, `type:ui`, `scope:*` |
+| `type:infra-server` | `type:domain`, `type:application`, `type:shared-domain`, `type:shared-application`, `type:shared-infra-server` | `type:ui`, `type:infra-client`, apps |
+| `type:infra-client` | `type:domain`, `type:application`, `type:shared-domain`, `type:shared-infra-client` | `type:infra-server` |
+| `type:ui` | `type:domain`, `type:application`, `type:infra-client`, `type:shared-domain`, `type:shared-infra-client` | `type:infra-server` |
+| `type:testing` | `type:domain`, `type:application`, `type:shared-domain`, `type:shared-application`, `type:shared-testing` | Código de producción. |
+| `type:app-backend` | `type:infra-server`, `type:shared-infra-server`, `type:shared-domain` | `type:ui`, `type:infra-client`, frontend |
+| `type:app-frontend` | `type:ui`, `type:infra-client`, `type:shared-infra-client`, `type:domain` | `type:infra-server`, `type:app-backend` |
+| `type:app-mobile` | `type:ui`, `type:infra-client`, `type:shared-infra-client`, `type:domain` | `type:infra-server`, paquetes web |
+| `type:app-desktop` | `type:ui`, `type:infra-client`, `type:shared-infra-client`, `type:domain` | `type:infra-server` |
 
 ---
 

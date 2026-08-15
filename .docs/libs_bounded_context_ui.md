@@ -65,9 +65,10 @@ libs/{bounded_context}/ui/
 ```typescript
 // libs/users/ui/src/hooks/use-register-user.hook.ts
 import { useState } from 'react';
+import { DomainException } from '@monorepo/shared/domain';
 import { User, UserId, UserName, UserEmail, UserRepository } from '@monorepo/users/domain';
 
-interface RegisterUserInput {
+export interface RegisterUserInput {
   id: string;
   name: string;
   email: string;
@@ -84,18 +85,25 @@ export function useRegisterUser(repository: UserRepository) {
     setIsSuccess(false);
 
     try {
+      // 1. Validación temprana de invariantes con Value Objects
       const id = new UserId(input.id);
       const name = new UserName(input.name);
       const email = new UserEmail(input.email);
 
-      const user = User.create(id, name, email);
+      // 2. Instanciación limpia del modelo para transporte por el repositorio cliente
+      const user = new User(id, name, email);
 
+      // 3. Envío al backend a través del repositorio HTTP
       await repository.save(user);
 
       setIsSuccess(true);
       return true;
-    } catch (err: any) {
-      setError(err?.message || 'Error inesperado al registrar el usuario');
+    } catch (err: unknown) {
+      if (err instanceof DomainException || err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Error inesperado al registrar el usuario');
+      }
       return false;
     } finally {
       setIsLoading(false);
@@ -122,26 +130,30 @@ import { useState, useEffect, useCallback } from 'react';
 import { Criteria } from '@monorepo/shared/domain';
 import { User, UserRepository } from '@monorepo/users/domain';
 
-export function useSearchUsers(repository: UserRepository, initialCriteria: Criteria) {
+export function useSearchUsers(repository: UserRepository, initialCriteria?: Criteria) {
   const [users, setUsers] = useState<Array<User>>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchUsers = useCallback(async (criteria: Criteria) => {
+  const fetchUsers = useCallback(async (criteriaToSearch: Criteria) => {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await repository.matching(criteria);
+      const result = await repository.matching(criteriaToSearch);
       setUsers(result);
-    } catch (err: any) {
-      setError(err?.message || 'Error al cargar los usuarios');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Error al cargar los usuarios');
+      }
     } finally {
       setIsLoading(false);
     }
   }, [repository]);
 
   useEffect(() => {
-    fetchUsers(initialCriteria);
+    fetchUsers(initialCriteria ?? Criteria.empty());
   }, [fetchUsers, initialCriteria]);
 
   return {

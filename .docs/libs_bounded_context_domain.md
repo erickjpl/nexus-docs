@@ -248,7 +248,37 @@ export class UserRegisteredDomainEvent extends DomainEvent {
 
 ---
 
-### 3.3 Bloque: `ports/repositories/`
+### 3.3 Bloque: `exceptions/`
+
+#### `{business-error}.exception.ts`
+* **Nivel:** **[ESTRICTO]**
+* **Por qué existe:** Modela errores semánticos del contexto que extienden las clases base de `@monorepo/shared/domain`.
+
+```typescript
+// libs/users/domain/src/exceptions/user-not-found.exception.ts
+import { DomainNotFoundError } from '@monorepo/shared/domain';
+import { UserId } from '../model/user-id.vo';
+
+export class UserNotFoundError extends DomainNotFoundError {
+  constructor(id: UserId) {
+    super(`User with id <${id.value}> was not found`);
+  }
+}
+
+// libs/users/domain/src/exceptions/user-already-exists.exception.ts
+import { DomainConflictError } from '@monorepo/shared/domain';
+import { UserEmail } from '../model/user-email.vo';
+
+export class UserAlreadyExistsError extends DomainConflictError {
+  constructor(email: UserEmail) {
+    super(`User with email <${email.value}> already exists`);
+  }
+}
+```
+
+---
+
+### 3.4 Bloque: `ports/repositories/`
 
 #### `{aggregate}.repository.ts`
 * **Nivel:** **[ESTRICTO]**
@@ -270,7 +300,7 @@ export interface UserRepository {
 
 ---
 
-### 3.4 Bloque: `services/` (Domain Services)
+### 3.5 Bloque: `services/` (Domain Services)
 
 #### `{name}.domain-service.ts`
 * **Nivel:** **[OPCIONAL]**
@@ -324,6 +354,9 @@ export * from './model/user-name.vo';
 export * from './model/user-email.vo';
 
 export * from './events/user-registered.domain-event';
+
+export * from './exceptions/user-not-found.exception';
+export * from './exceptions/user-already-exists.exception';
 
 export * from './ports/repositories/user.repository';
 export * from './services/user-email-uniqueness-checker.service';

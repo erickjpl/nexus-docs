@@ -116,9 +116,9 @@ export function useDependencies(): AppDependencies {
 // apps/web/src/app/routes/app-router.tsx
 import React from 'react';
 import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom';
+import { Criteria } from '@monorepo/shared/domain';
 import { useDependencies } from '../di/dependency-provider';
 import { RegisterUserContainer, UsersListContainer } from '@monorepo/users/ui';
-import { CriteriaMother } from '@monorepo/shared/testing';
 
 const UsersPage: React.FC = () => {
   const { userRepository } = useDependencies();
@@ -131,7 +131,7 @@ const UsersPage: React.FC = () => {
       </nav>
       <UsersListContainer
         repository={userRepository}
-        initialCriteria={CriteriaMother.empty()}
+        initialCriteria={Criteria.empty()}
       />
     </div>
   );

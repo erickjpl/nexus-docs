@@ -55,16 +55,21 @@ apps/api/
 // apps/api/src/filters/domain-exception.filter.ts
 import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus } from '@nestjs/common';
 import { Response, Request } from 'express';
-import { InvalidArgumentError } from '@monorepo/shared/domain';
+import {
+  DomainException,
+  InvalidArgumentError,
+  DomainNotFoundError,
+  DomainConflictError
+} from '@monorepo/shared/domain';
 
 @Catch()
 export class DomainExceptionFilter implements ExceptionFilter {
-  catch(exception: any, host: ArgumentsHost): void {
+  catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    // 1. Invariantes de Value Objects (Validación de formato / datos)
+    // 1. Invariantes de Value Objects y validaciones de formato
     if (exception instanceof InvalidArgumentError) {
       response.status(HttpStatus.BAD_REQUEST).json({
         statusCode: HttpStatus.BAD_REQUEST,
@@ -76,8 +81,8 @@ export class DomainExceptionFilter implements ExceptionFilter {
       return;
     }
 
-    // 2. Errores de Dominio no encontrados (*NotFound)
-    if (exception?.name?.includes('NotFound') || exception?.message?.toLowerCase().includes('not found')) {
+    // 2. Errores de entidad no encontrada
+    if (exception instanceof DomainNotFoundError) {
       response.status(HttpStatus.NOT_FOUND).json({
         statusCode: HttpStatus.NOT_FOUND,
         error: 'Not Found',
@@ -88,8 +93,8 @@ export class DomainExceptionFilter implements ExceptionFilter {
       return;
     }
 
-    // 3. Conflictos de Negocio (*AlreadyExists / Conflict)
-    if (exception?.name?.includes('AlreadyExists') || exception?.name?.includes('Conflict')) {
+    // 3. Conflictos de regla de negocio o duplicados
+    if (exception instanceof DomainConflictError) {
       response.status(HttpStatus.CONFLICT).json({
         statusCode: HttpStatus.CONFLICT,
         error: 'Conflict',
@@ -100,15 +105,28 @@ export class DomainExceptionFilter implements ExceptionFilter {
       return;
     }
 
-    // 4. Errores HTTP nativos de NestJS
-    if (exception?.getStatus && typeof exception.getStatus === 'function') {
-      const status = exception.getStatus();
-      const res = exception.getResponse();
-      response.status(status).json(res);
+    // 4. Otras excepciones de dominio no mapeadas específicamente
+    if (exception instanceof DomainException) {
+      response.status(HttpStatus.UNPROCESSABLE_ENTITY).json({
+        statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+        error: 'Unprocessable Entity',
+        message: exception.message,
+        timestamp: new Date().toISOString(),
+        path: request.url
+      });
       return;
     }
 
-    // 5. Errores no controlados (500 Internal Server Error)
+    // 5. Errores HTTP nativos de NestJS (HttpException)
+    if (typeof exception === 'object' && exception !== null && 'getStatus' in exception && typeof (exception as any).getStatus === 'function') {
+      const httpException = exception as { getStatus(): number; getResponse(): any };
+      const status = httpException.getStatus();
+      const res = httpException.getResponse();
+      response.status(status).json(typeof res === 'object' ? res : { statusCode: status, message: res });
+      return;
+    }
+
+    // 6. Errores no controlados (500 Internal Server Error)
     console.error('Unhandled Exception:', exception);
     response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
