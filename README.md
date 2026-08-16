@@ -35,7 +35,7 @@ nexus-monorepo/
 │   └── shared/                # Shared Kernel universal
 ├── rest-client/               # 🚀 Colecciones vivas de Bruno (.bru)
 ├── .docs/                     # 📚 Documentación técnica exhaustiva por capa
-├── .github/                   # ⚙️ Workflows CI y plantillas de Issues/PRs
+├── .gitlab/                   # ⚙️ Plantillas de Issues, Merge Requests y Releases para GitLab
 └── AGENTS.md                  # 🤖 Protocolo y directrices para Agentes de IA
 ```
 

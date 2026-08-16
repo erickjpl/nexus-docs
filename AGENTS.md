@@ -36,7 +36,7 @@ Todas las reglas arquitectónicas, patrones de diseño y especificaciones técni
 
 Antes de crear, refactorizar o modificar cualquier archivo en este repositorio, el agente **DEBE** seguir estos pasos sin excepción:
 
-1. **Regla "Issue-First" y Tablero de Proyecto Obligatorios:** Prohibido crear ramas o escribir código sin un Issue previo en GitHub (ver [`.docs/governance_gitflow.md`](.docs/governance_gitflow.md)). Las tarjetas del Project Board **DEBEN** transicionar formalmente en cada etapa: `📋 Listado de tareas` ➔ `🔨 En desarrollo` (al crear rama) ➔ `🧪 Probando (testing)` (al ejecutar suite de tests/pre-push gates) ➔ `🚀 Desarrollado` (al fusionar PR a `develop`) ➔ `📦 Probado` (acumulado) ➔ `✅ Hecho` (merge a `main` con Release).
+1. **Regla "Issue-First" y Tablero de GitLab Obligatorios:** Prohibido crear ramas o escribir código sin un Issue previo en GitLab (ver [`.docs/governance_gitflow.md`](.docs/governance_gitflow.md)). Las tarjetas del Issue Board **DEBEN** transicionar formalmente en cada etapa mediante Scoped Labels: `status::backlog` ➔ `status::to-do` ➔ `status::in-progress` (al crear rama) ➔ `status::in-review` (al abrir MR y ejecutar suite de tests/pre-push gates) ➔ `status::ready-for-release` (al fusionar MR a `develop`) ➔ `Closed / Done` (merge a `main` con Tag de Release).
 2. **Identificar la Capa y el Bounded Context:** Determinar si la tarea corresponde a `domain`, `application`, `infrastructure/server`, `infrastructure/client`, `ui` o `testing`.
 3. **Consultar la Documentación Específica en `.docs/`:** Abrir y leer la especificación técnica asociada a la tarea en la [Matriz de Enrutamiento](#2-matriz-de-enrutamiento-tarea--especificación-en-docs) antes de implementar.
 4. **Cumplir las Restricciones Arquitectónicas Fundamentales:**
@@ -48,6 +48,7 @@ Antes de crear, refactorizar o modificar cualquier archivo en este repositorio, 
    - **Regla "1 Acción = 1 Permiso Dedicado (Enum)":** Cada endpoint en backend valida su propio `case` de enum tipado (`PermissionEnum.ACTION`) con `@UseGuards(ActionPermissionGuard)` y en frontend cada componente interactivo se gobierna con el mismo enum.
    - **Colección Bruno Obligatoria (`rest-client/api/`):** Todo endpoint creado o modificado debe tener su archivo `.bru` con bloque `docs` en Markdown.
    - **Pre-Push Gates Obligatorios:** Linter limpio, chequeo de tipos (`npx nx run-many -t typecheck`) y 100% de tests en verde (`npx nx run-many -t test`).
+   - **Gobernanza de CHANGELOG:** Todo cambio que se integre a release debe actualizar `CHANGELOG.md` siguiendo el estándar Keep a Changelog.
 
 ---
 
@@ -55,7 +56,7 @@ Antes de crear, refactorizar o modificar cualquier archivo en este repositorio, 
 
 | Tarea a Implementar / Modificar                                                          | Documento de Especificación Obligatorio                                                                      |
 | :--------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------- |
-| **Metodología GitFlow, Commits, Labels de GitHub y Releases**                            | [`.docs/governance_gitflow.md`](.docs/governance_gitflow.md)                                                 |
+| **Metodología GitFlow, Commits, Scoped Labels de GitLab y Releases**                     | [`.docs/governance_gitflow.md`](.docs/governance_gitflow.md)                                                 |
 | **Fundamentos de Arquitectura Onion, EDA, CQRS y Ciclo de Eventos**                      | [`.docs/architectural_documentation.md`](.docs/architectural_documentation.md)                               |
 | **Clases base del Shared Kernel (`AggregateRoot`, `ValueObject`, `Criteria`, `Result`)** | [`.docs/libs_shared_domain.md`](.docs/libs_shared_domain.md)                                                 |
 | **Abstracciones CQRS compartidas (`Command`, `Query`, `CommandBus`, `QueryBus`)**        | [`.docs/libs_shared_application.md`](.docs/libs_shared_application.md)                                       |

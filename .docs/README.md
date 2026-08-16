@@ -9,8 +9,8 @@ Define el mapa de documentación y las directrices obligatorias antes de crear o
 
 Si vas a escribir código o realizar cambios en este repositorio, debés seguir este protocolo:
 
-1. **Regla "Issue-First" Obligatoria:** Prohibido crear ramas o escribir código sin un Issue previo en GitHub
-   (ver [`governance_gitflow.md`](./governance_gitflow.md)). Todo PR y su squash commit debe referenciar `Closes #<id_issue>` en la descripción (no en cada commit atómico).
+1. **Regla "Issue-First" Obligatoria:** Prohibido crear ramas o escribir código sin un Issue previo en GitLab
+   (ver [`governance_gitflow.md`](./governance_gitflow.md)). Todo MR y su squash commit debe referenciar `Closes #<id_issue>` en la descripción (no en cada commit atómico).
 2. **Identificá la Capa y el Bounded Context:** Determiná si tu tarea corresponde a `domain`, `application`,
    `infrastructure/server`, `infrastructure/client`, `ui` o `testing`.
 3. **Consultá el Archivo Específico:** Abrí y leé **únicamente** la especificación técnica asociada a tu tarea en la
