@@ -173,6 +173,91 @@ export class ApiResponse {
 }
 ```
 
+#### 3.1.1 Especificación de Variantes de Respuesta (`ApiResponse`)
+
+Todas las respuestas del API utilizan la misma forma base, distinguiendo cuatro variantes formales:
+
+##### A) Éxito — Recurso individual
+```json
+{
+  "success": true,
+  "message": "User retrieved successfully",
+  "data": {
+    "id": "f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+    "name": "Erick Perez",
+    "email": "erick@nexus.com"
+  },
+  "meta": {
+    "code": 200,
+    "timestamp": "2026-08-15T22:45:00Z",
+    "version": "1.0"
+  }
+}
+```
+- `data`: Objeto con los campos del recurso (`T`).
+- `meta.code`: Código de estado HTTP (200 por defecto, 201 vía `ApiResponse.created()`, 204 vía `ApiResponse.noContent()`).
+
+##### B) Éxito — Colección con paginación
+```json
+{
+  "success": true,
+  "message": "Users retrieved successfully",
+  "data": [
+    { "id": "uuid-1", "name": "User One", "email": "one@nexus.com" },
+    { "id": "uuid-2", "name": "User Two", "email": "two@nexus.com" }
+  ],
+  "meta": {
+    "code": 200,
+    "timestamp": "2026-08-15T22:45:00Z",
+    "version": "1.0",
+    "pagination": {
+      "total": 42,
+      "count": 2,
+      "per_page": 15,
+      "current_page": 1,
+      "total_pages": 3
+    }
+  }
+}
+```
+- `data`: Array de elementos de la página solicitada.
+- `meta.pagination`: Incluye `total`, `count`, `per_page`, `current_page` y `total_pages`. Generado mediante `ApiResponse.buildPaginationMeta(total, limit, offset)` o `ApiResponse.paginated(data, pagination)`.
+
+##### C) Error simple
+```json
+{
+  "success": false,
+  "message": "Credenciales inválidas o recurso no encontrado",
+  "meta": {
+    "code": 401,
+    "timestamp": "2026-08-15T22:45:00Z",
+    "version": "1.0"
+  }
+}
+```
+- `success`: `false`.
+- `message`: Mensaje explicativo del error.
+- `meta.code`: HTTP status del error (400, 401, 403, 404, 409, 500). No contiene `data`.
+
+##### D) Error de validación
+```json
+{
+  "success": false,
+  "message": "Error de validación",
+  "meta": {
+    "code": 422,
+    "timestamp": "2026-08-15T22:45:00Z",
+    "version": "1.0"
+  },
+  "errors": {
+    "email": ["El campo email es obligatorio", "El campo email debe ser un correo válido"],
+    "name": ["El campo name debe tener al menos 3 caracteres"]
+  }
+}
+```
+- `meta.code`: 422 (Unprocessable Entity).
+- `errors`: Diccionario de campos con arrays de mensajes de validación generados por Zod / DTOs. Producido mediante `ApiResponse.validation(errors)`.
+
 #### `require-permission.decorator.ts` y `action-permission.guard.ts`
 ```typescript
 // libs/shared/infrastructure/server/src/http/decorators/require-permission.decorator.ts
