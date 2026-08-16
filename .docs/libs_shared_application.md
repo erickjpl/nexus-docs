@@ -8,11 +8,11 @@ abstracciones base, contratos y tipos genéricos necesarios para implementar cas
 
 ## 1. Directrices Obligatorias de la Capa
 
-* **[ESTRICTO] Aislamiento Total de Frameworks:** Prohibido importar `@nestjs/common`, `@nestjs/cqrs`, librerías HTTP,
+- **[ESTRICTO] Aislamiento Total de Frameworks:** Prohibido importar `@nestjs/common`, `@nestjs/cqrs`, librerías HTTP,
   ORMs o paquetes de React. Todas las clases son TypeScript nativo puro.
-* **[ESTRICTO] Dependencias Permitidas:** Solo depende de `@monorepo/shared/domain` (`type:shared-domain`).
-* **[ESTRICTO] Tag de Nx:** Configurado en `project.json` con `tags: ["type:shared-application", "scope:shared"]`.
-* **[ESTRICTO] Responsabilidad Única:** Esta capa solo define abstracciones y contratos de orquestación. La ejecución
+- **[ESTRICTO] Dependencias Permitidas:** Solo depende de `@monorepo/shared/domain` (`type:shared-domain`).
+- **[ESTRICTO] Tag de Nx:** Configurado en `project.json` con `tags: ["type:shared-application", "scope:shared"]`.
+- **[ESTRICTO] Responsabilidad Única:** Esta capa solo define abstracciones y contratos de orquestación. La ejecución
   en memoria, el registro dinámico o el binding con brokers de mensajería pertenecen a `infrastructure`.
 
 ---
@@ -25,16 +25,21 @@ libs/shared/application/
 │   ├── command/
 │   │   ├── command.ts                    # [ESTRICTO] Contrato base para Comandos (mutaciones de estado)
 │   │   ├── command-handler.ts            # [ESTRICTO] Interfaz para manejadores de comandos
-│   │   └── command-class.type.ts         # [ESTRICTO] Tipo para el constructor/firma del comando
+│   │   ├── command-class.type.ts         # [ESTRICTO] Tipo para el constructor/firma del comando
+│   │   └── command-not-registered.error.ts # [ESTRICTO] Error tipado cuando no existe handler para un comando
 │   │
 │   ├── query/
 │   │   ├── query.ts                      # [ESTRICTO] Contrato base para Consultas (lecturas sin efecto secundario)
 │   │   ├── query-handler.ts              # [ESTRICTO] Interfaz para manejadores de consultas
 │   │   ├── query-class.type.ts           # [ESTRICTO] Tipo para el constructor/firma de la consulta
+│   │   ├── query-not-registered.error.ts # [ESTRICTO] Error tipado cuando no existe handler para una query
 │   │   └── response.ts                   # [ESTRICTO] Interfaz marcadora para respuestas de queries (DTOs)
 │   │
 │   ├── use-case/
 │   │   └── use-case.interface.ts         # [OPCIONAL] Interfaz genérica para orquestadores directos (sin bus)
+│   │
+│   ├── event/
+│   │   └── domain-event-handler.interface.ts # [ESTRICTO] Contrato para suscriptores de eventos de dominio
 │   │
 │   └── index.ts                          # [ESTRICTO] Barril público de exportación
 ├── project.json
@@ -49,12 +54,13 @@ libs/shared/application/
 ### 3.1 Bloque: `command/`
 
 #### `command.ts`
-* **Nivel:** **[ESTRICTO]**
-* **Por qué existe:** Representa una intención inequívoca de modificar el estado del sistema (ej. `RegisterUserCommand`,
+
+- **Nivel:** **[ESTRICTO]**
+- **Por qué existe:** Representa una intención inequívoca de modificar el estado del sistema (ej. `RegisterUserCommand`,
   `UpdateUserEmailCommand`). Es un DTO inmutable que transporta primitivos validados desde el exterior hacia el núcleo.
-* **Comportamiento exigido:**
-  * Debe ser una clase abstracta o interfaz inmutable.
-  * No contiene lógica de negocio ni comportamiento; solo datos primitivos de entrada.
+- **Comportamiento exigido:**
+  - Debe ser una clase abstracta o interfaz inmutable.
+  - No contiene lógica de negocio ni comportamiento; solo datos primitivos de entrada.
 
 ```typescript
 export abstract class Command {
@@ -65,8 +71,9 @@ export abstract class Command {
 ---
 
 #### `command-class.type.ts`
-* **Nivel:** **[ESTRICTO]**
-* **Por qué existe:** Permite que el `CommandBus` mapee en tiempo de compilación y ejecución la clase exacta del
+
+- **Nivel:** **[ESTRICTO]**
+- **Por qué existe:** Permite que el `CommandBus` mapee en tiempo de compilación y ejecución la clase exacta del
   comando con su respectivo handler sin acoplarse a strings mágicos.
 
 ```typescript
@@ -80,12 +87,13 @@ export type CommandClass<T extends Command> = {
 ---
 
 #### `command-handler.ts`
-* **Nivel:** **[ESTRICTO]**
-* **Por qué existe:** Es el contrato que debe cumplir cualquier clase encargada de procesar un comando específico.
-* **Comportamiento exigido:**
-  * `subscribedTo(): CommandClass<C>`: Retorna la clase del comando que este handler es capaz de procesar.
-  * `handle(command: C): Promise<void>`: Ejecuta el caso de uso orquestando agregados, repositorios y eventos.
-  * **No retorna datos de negocio**, únicamente resuelve o rechaza la promesa.
+
+- **Nivel:** **[ESTRICTO]**
+- **Por qué existe:** Es el contrato que debe cumplir cualquier clase encargada de procesar un comando específico.
+- **Comportamiento exigido:**
+  - `subscribedTo(): CommandClass<C>`: Retorna la clase del comando que este handler es capaz de procesar.
+  - `handle(command: C): Promise<void>`: Ejecuta el caso de uso orquestando agregados, repositorios y eventos.
+  - **No retorna datos de negocio**, únicamente resuelve o rechaza la promesa.
 
 ```typescript
 import { Command } from './command';
@@ -102,8 +110,9 @@ export interface CommandHandler<C extends Command> {
 ### 3.2 Bloque: `query/`
 
 #### `query.ts`
-* **Nivel:** **[ESTRICTO]**
-* **Por qué existe:** Representa una solicitud de lectura de información. A diferencia de un comando, una query
+
+- **Nivel:** **[ESTRICTO]**
+- **Por qué existe:** Representa una solicitud de lectura de información. A diferencia de un comando, una query
   **jamás** produce efectos secundarios ni muta el estado del sistema.
 
 ```typescript
@@ -115,8 +124,9 @@ export abstract class Query {
 ---
 
 #### `query-class.type.ts`
-* **Nivel:** **[ESTRICTO]**
-* **Por qué existe:** Tipado del constructor de la consulta para el registro en el `QueryBus`.
+
+- **Nivel:** **[ESTRICTO]**
+- **Por qué existe:** Tipado del constructor de la consulta para el registro en el `QueryBus`.
 
 ```typescript
 import { Query } from './query';
@@ -129,8 +139,9 @@ export type QueryClass<Q extends Query> = {
 ---
 
 #### `response.ts`
-* **Nivel:** **[ESTRICTO]**
-* **Por qué existe:** Marca las estructuras de retorno de una consulta. Evita que los casos de uso retornen Entidades
+
+- **Nivel:** **[ESTRICTO]**
+- **Por qué existe:** Marca las estructuras de retorno de una consulta. Evita que los casos de uso retornen Entidades
   o Agregados de Dominio mutables directamente al exterior, forzando el retorno de DTOs o Read Models primitivos.
 
 ```typescript
@@ -142,11 +153,12 @@ export interface Response {
 ---
 
 #### `query-handler.ts`
-* **Nivel:** **[ESTRICTO]**
-* **Por qué existe:** Contrato para los procesadores de consultas.
-* **Comportamiento exigido:**
-  * `subscribedTo(): QueryClass<Q>`: Especifica la Query asociada.
-  * `handle(query: Q): Promise<R>`: Ejecuta la búsqueda y transforma los datos en una `Response`.
+
+- **Nivel:** **[ESTRICTO]**
+- **Por qué existe:** Contrato para los procesadores de consultas.
+- **Comportamiento exigido:**
+  - `subscribedTo(): QueryClass<Q>`: Especifica la Query asociada.
+  - `handle(query: Q): Promise<R>`: Ejecuta la búsqueda y transforma los datos en una `Response`.
 
 ```typescript
 import { Query } from './query';
@@ -164,10 +176,11 @@ export interface QueryHandler<Q extends Query, R extends Response> {
 ### 3.3 Bloque: `use-case/`
 
 #### `use-case.interface.ts`
-* **Nivel:** **[OPCIONAL]**
-* **Por qué existe:** Para escenarios donde un Bounded Context o una aplicación de frontend decide invocar un servicio
+
+- **Nivel:** **[OPCIONAL]**
+- **Por qué existe:** Para escenarios donde un Bounded Context o una aplicación de frontend decide invocar un servicio
   de aplicación directamente sin pasar por un CommandBus/QueryBus.
-* **Nota de Decisión (UseCase vs CQRS):** `UseCase` es para flujos simples que no requieren un bus de mensajes. CQRS (`CommandHandler` / `QueryHandler`) se utiliza para flujos mediados por buses. Ambos son válidos; el equipo elige según la complejidad del caso.
+- **Nota de Decisión (UseCase vs CQRS):** `UseCase` es para flujos simples que no requieren un bus de mensajes. CQRS (`CommandHandler` / `QueryHandler`) se utiliza para flujos mediados por buses. Ambos son válidos; el equipo elige según la complejidad del caso.
 
 ```typescript
 export interface UseCase<Input, Output> {
@@ -180,8 +193,9 @@ export interface UseCase<Input, Output> {
 ### 3.4 Bloque: `event/`
 
 #### `domain-event-handler.interface.ts`
-* **Nivel:** **[ESTRICTO]**
-* **Por qué existe:** Contrato para los suscriptores que procesan eventos de dominio de forma asíncrona.
+
+- **Nivel:** **[ESTRICTO]**
+- **Por qué existe:** Contrato para los suscriptores que procesan eventos de dominio de forma asíncrona.
 
 ```typescript
 import { DomainEvent } from '@monorepo/shared/domain';
@@ -194,6 +208,37 @@ export interface DomainEventHandler<T extends DomainEvent = DomainEvent> {
 
 ---
 
+### 3.5 Bloque: Errores Tipados de Bus
+
+- **Por qué existe:** Cuando el bus no encuentra un handler registrado para un comando o query, lanza un error
+  **tipado** (extiende `DomainException` del dominio) en lugar de un `Error` genérico. Esto permite capturarlos con
+  `instanceof` en filtros de infraestructura y persistir el **patrón fail-closed**.
+
+```typescript
+// command/command-not-registered.error.ts
+import { DomainException } from '@monorepo/shared/domain';
+
+export class CommandNotRegisteredError extends DomainException {
+  constructor(commandName: string) {
+    super(`No handler registered for command: ${commandName}`);
+  }
+}
+
+// query/query-not-registered.error.ts
+import { DomainException } from '@monorepo/shared/domain';
+
+export class QueryNotRegisteredError extends DomainException {
+  constructor(queryName: string) {
+    super(`No handler registered for query: ${queryName}`);
+  }
+}
+```
+
+- **Nota de Implementación:** `CommandHandlersInformation` / `QueryHandlersInformation`
+  (`shared-infrastructure-server`) son los emisores de estos errores al resolver un handler inexistente.
+
+---
+
 ## 4. Barril de Exportación (`src/index.ts`)
 
 ```typescript
@@ -201,11 +246,13 @@ export interface DomainEventHandler<T extends DomainEvent = DomainEvent> {
 export * from './command/command';
 export * from './command/command-handler';
 export * from './command/command-class.type';
+export * from './command/command-not-registered.error';
 
 export * from './query/query';
 export * from './query/query-handler';
 export * from './query/query-class.type';
 export * from './query/response';
+export * from './query/query-not-registered.error';
 
 export * from './use-case/use-case.interface';
 

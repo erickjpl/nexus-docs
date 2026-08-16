@@ -61,12 +61,16 @@ libs/shared/domain/
 │   │   ├── query-bus.ts                  # [ESTRICTO] Interfaz del bus de consultas tipado
 │   │   └── event-bus.ts                  # [ESTRICTO] Interfaz del bus de eventos de dominio
 │   │
+│   ├── logging/
+│   │   └── logger.interface.ts           # [ESTRICTO] Puerto puro de logging (sin dependencias de framework)
+│   │
 │   ├── result/
 │   │   ├── result.ts                     # [ESTRICTO] Implementación del patrón Result<T, E>
 │   │   └── failure.ts                    # [ESTRICTO] Clase base para errores de negocio controlados
 │   │
 │   ├── types/
-│   │   └── nullable.type.ts              # [OPCIONAL] Tipo auxiliar para Nullable<T> = T | null
+│   │   ├── nullable.type.ts              # [OPCIONAL] Tipo auxiliar para Nullable<T> = T | null
+│   │   └── newable-class.type.ts         # [ESTRICTO] Tipo de clase instanciable sin argumentos (NewableClass<T>)
 │   │
 │   └── index.ts                          # [ESTRICTO] Barril público de exportación
 ├── project.json
@@ -413,12 +417,23 @@ export enum Operator {
   GT = '>',
   LT = '<',
   CONTAINS = 'CONTAINS',
-  NOT_CONTAINS = 'NOT_CONTAINS'
+  NOT_CONTAINS = 'NOT_CONTAINS',
 }
 
 export class FilterOperator extends EnumValueObject<Operator> {
   constructor(value: Operator) {
     super(value, Object.values(Operator));
+  }
+
+  // [ESTRICTO] Ingesta tipada desde string; valida contra Object.values(Operator)
+  // y lanza InvalidArgumentError con el valor inválido en el mensaje.
+  static fromValue(value: string): FilterOperator {
+    for (const operatorValue of Object.values(Operator)) {
+      if (value === operatorValue.toString()) {
+        return new FilterOperator(operatorValue);
+      }
+    }
+    throw new InvalidArgumentError(`The filter operator <${value}> is invalid`);
   }
 
   protected throwErrorForInvalidValue(value: Operator): void {
@@ -433,7 +448,7 @@ export class Filter {
   constructor(
     readonly field: FilterField,
     readonly operator: FilterOperator,
-    readonly value: FilterValue
+    readonly value: FilterValue,
   ) {}
 
   static fromValues(values: Map<string, string>): Filter {
@@ -442,13 +457,16 @@ export class Filter {
     const value = values.get('value');
 
     if (!field || !operator || !value) {
-      throw new InvalidArgumentError('Filter is not valid. Must contain field, operator, and value');
+      throw new InvalidArgumentError(
+        'Filter is not valid. Must contain field, operator, and value',
+      );
     }
 
+    // [ESTRICTO] Ingesta fail-closed tipada mediante FilterOperator.fromValue.
     return new Filter(
       new FilterField(field),
-      new FilterOperator(operator as Operator),
-      new FilterValue(value)
+      FilterOperator.fromValue(operator),
+      new FilterValue(value),
     );
   }
 }
@@ -472,7 +490,9 @@ export class Filters {
   constructor(readonly filters: Array<Filter>) {}
 
   static fromValues(values: Array<Map<string, string>>): Filters {
-    return new Filters(values.map((filterValues) => Filter.fromValues(filterValues)));
+    return new Filters(
+      values.map((filterValues) => Filter.fromValues(filterValues)),
+    );
   }
 
   static empty(): Filters {
@@ -486,7 +506,7 @@ export class Criteria {
     readonly filters: Filters,
     readonly order: Order,
     readonly limit?: number,
-    readonly offset?: number
+    readonly offset?: number,
   ) {}
 
   static empty(): Criteria {
@@ -514,11 +534,29 @@ export enum OrderTypes {
 export class OrderType {
   constructor(readonly value: OrderTypes) {}
 
-  static asc(): OrderType { return new OrderType(OrderTypes.ASC); }
-  static desc(): OrderType { return new OrderType(OrderTypes.DESC); }
-  static none(): OrderType { return new OrderType(OrderTypes.NONE); }
+  // [ESTRICTO] Ingesta tipada desde string; falla si no es asc/desc/none.
+  static fromValue(value: string): OrderType {
+    for (const orderTypeValue of Object.values(OrderTypes)) {
+      if (value === orderTypeValue.toString()) {
+        return new OrderType(orderTypeValue);
+      }
+    }
+    throw new InvalidArgumentError(`The order type <${value}> is invalid`);
+  }
 
-  isNone(): boolean { return this.value === OrderTypes.NONE; }
+  static asc(): OrderType {
+    return new OrderType(OrderTypes.ASC);
+  }
+  static desc(): OrderType {
+    return new OrderType(OrderTypes.DESC);
+  }
+  static none(): OrderType {
+    return new OrderType(OrderTypes.NONE);
+  }
+
+  isNone(): boolean {
+    return this.value === OrderTypes.NONE;
+  }
 }
 
 // order-by.ts
@@ -535,6 +573,17 @@ export class Order {
     readonly orderBy: OrderBy,
     readonly orderType: OrderType,
   ) {}
+
+  // [ESTRICTO] Sin orderBy => Order.none(); con orderBy y sin orderType => default ASC.
+  static fromValues(orderBy?: string, orderType?: string): Order {
+    if (!orderBy) {
+      return Order.none();
+    }
+    return new Order(
+      new OrderBy(orderBy),
+      OrderType.fromValue(orderType || OrderTypes.ASC),
+    );
+  }
 
   static none(): Order {
     return new Order(new OrderBy(''), OrderType.none());
@@ -558,8 +607,8 @@ export class Order {
 
 ### 3.6 Bloque: `bus/`
 
-* **Nivel:** **[ESTRICTO]**
-* **Por qué existe:** Define los contratos abstractos de mensajería sincrónica y asincrónica para desacoplar los
+- **Nivel:** **[ESTRICTO]**
+- **Por qué existe:** Define los contratos abstractos de mensajería sincrónica y asincrónica para desacoplar los
   emisores de los receptores con tipado estricto.
 
 ```typescript
@@ -591,8 +640,8 @@ export interface EventBus {
 
 ### 3.7 Bloque: `result/` (Either / Result Pattern)
 
-* **Nivel:** **[ESTRICTO]**
-* **Por qué existe:** Modela el resultado de operaciones de dominio de forma determinista y tipada. Obliga a que los
+- **Nivel:** **[ESTRICTO]**
+- **Por qué existe:** Modela el resultado de operaciones de dominio de forma determinista y tipada. Obliga a que los
   errores de negocio esperados se traten como valores de retorno en lugar de excepciones no controladas.
 
 ```typescript
@@ -601,7 +650,7 @@ export abstract class Failure {
   constructor(
     readonly message: string,
     readonly code: string,
-    readonly context?: Record<string, any>
+    readonly context?: Record<string, any>,
   ) {}
 }
 
@@ -610,7 +659,7 @@ export class Result<T, E extends Failure> {
   private constructor(
     private readonly _isSuccess: boolean,
     private readonly _value?: T,
-    private readonly _error?: E
+    private readonly _error?: E,
   ) {}
 
   static ok<T, E extends Failure>(value: T): Result<T, E> {
@@ -631,14 +680,18 @@ export class Result<T, E extends Failure> {
 
   getValue(): T {
     if (!this._isSuccess) {
-      throw new Error('Cannot get value from a failed Result. Check isSuccess first.');
+      throw new Error(
+        'Cannot get value from a failed Result. Check isSuccess first.',
+      );
     }
     return this._value as T;
   }
 
   getError(): E {
     if (this._isSuccess) {
-      throw new Error('Cannot get error from a successful Result. Check isFailure first.');
+      throw new Error(
+        'Cannot get error from a successful Result. Check isFailure first.',
+      );
     }
     return this._error as E;
   }
@@ -649,25 +702,61 @@ export class Result<T, E extends Failure> {
 
 ### 3.8 Guía de Decisión: Result vs DomainException
 
-* **`DomainException` (por defecto):** Para violaciones de invariantes en Value Objects y Agregados, entidad no encontrada, o acceso denegado (forbidden). Son capturados automáticamente por el `DomainExceptionFilter` en NestJS.
-* **`Result<T, Failure>` (opcional):** Para cadenas complejas de validación en servicios de frontend o cuando es necesario acumular múltiples errores. **NO** se utiliza en handlers de comandos/consultas del backend (esos usan excepciones).
+- **`DomainException` (por defecto):** Para violaciones de invariantes en Value Objects y Agregados, entidad no encontrada, o acceso denegado (forbidden). Son capturados automáticamente por el `DomainExceptionFilter` en NestJS.
+- **`Result<T, Failure>` (opcional):** Para cadenas complejas de validación en servicios de frontend o cuando es necesario acumular múltiples errores. **NO** se utiliza en handlers de comandos/consultas del backend (esos usan excepciones).
 
 ---
 
 ### 3.9 Bloque: `types/`
 
-* **Nivel:** **[OPCIONAL]**
+- **Nivel:** **[OPCIONAL]**
 
 ```typescript
 // nullable.type.ts
 export type Nullable<T> = T | null;
 ```
 
+#### `newable-class.type.ts`
+
+- **Nivel:** **[ESTRICTO]**
+- **Por qué existe:** Tipa constructores instanciables **sin argumentos**, siguiendo el estilo estricto ya usado por
+  `CommandClass` / `QueryClass` en `shared/application` (con `never[]` en lugar de `any[]` para rechazar constructores que exigen argumentos).
+- **Comportamiento exigido:**
+  - `NewableClass<T> = new (...args: never[]) => T`: solo acepta clases cuyo constructor no requiere argumentos.
+  - Rechaza en tiempo de compilación los constructores con parámetros.
+
+```typescript
+export type NewableClass<T> = new (...args: never[]) => T;
+```
+
+---
+
+### 3.10 Bloque: `logging/` (Puerto de Logger en el Dominio)
+
+- **Nivel:** **[ESTRICTO]**
+- **Por qué existe:** Concede a la capa de aplicación (y al dominio) la capacidad de emitir logs a través de un
+  **puerto puro**, sin acoplarse a la infraestructura de logging concreta (NestJS, Winston, Pino). Es la puerta de
+  salida para que los casos de uso registren trazabilidad sin violar la Onion Architecture.
+- **Contrato exigido:** Cuatro métodos de logging por nivel de severidad, con mensaje `string` y parámetros opcionales
+  tipados como `unknown[]`.
+
+```typescript
+export interface Logger {
+  debug(message: string, ...optionalParams: unknown[]): void;
+  info(message: string, ...optionalParams: unknown[]): void;
+  warn(message: string, ...optionalParams: unknown[]): void;
+  error(message: string, ...optionalParams: unknown[]): void;
+}
+```
+
+- **Nota de Implementación:** `AppLoggerService` (`shared-infrastructure-server`) implementa **tanto** este puerto
+  `Logger` como la interfaz `LoggerService` de NestJS.
+
 ---
 
 ## 4. Barril de Exportación (`src/index.ts`)
 
-* **[ESTRICTO]:** Todo símbolo accesible para los Bounded Contexts debe ser re-exportado explícitamente desde
+- **[ESTRICTO]:** Todo símbolo accesible para los Bounded Contexts debe ser re-exportado explícitamente desde
   `src/index.ts`.
 
 ```typescript
@@ -705,8 +794,11 @@ export * from './bus/command-bus';
 export * from './bus/query-bus';
 export * from './bus/event-bus';
 
+export * from './logging/logger.interface';
+
 export * from './result/result';
 export * from './result/failure';
 
 export * from './types/nullable.type';
+export * from './types/newable-class.type';
 ```

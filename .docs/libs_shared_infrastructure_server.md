@@ -150,6 +150,10 @@ export class ApiResponse {
     };
   }
 
+  static noContent(message = 'Operación completada sin contenido'): ApiSuccessResponse<null> {
+    return this.success(null, message, 204);
+  }
+
   static error(message: string, code = 400, errors?: Record<string, Array<string>>): ApiErrorResponse {
     return {
       success: false,
@@ -161,6 +165,10 @@ export class ApiResponse {
       },
       ...(errors ? { errors } : {}),
     };
+  }
+
+  static validation(errors: Record<string, Array<string>>, message = 'Error de validación'): ApiErrorResponse {
+    return this.error(message, 422, errors);
   }
 }
 ```
@@ -208,36 +216,89 @@ export class ActionPermissionGuard implements CanActivate {
 
 > **Nota:** La documentación arquitectónica original especificaba el formato `[{ClassName}][L{line}]`, pero el requerimiento de líneas `[L{line}]` se simplificó, ya que los números de línea manuales se desactualizan fácilmente y generan ruido innecesario en refactorizaciones.
 
+- **Contrato doble [ESTRICTO]:** Implementa **tanto** la interfaz `LoggerService` de NestJS **como** el puerto
+  `Logger` de `@monorepo/shared/domain` (`logging/logger.interface.ts`). `info` delega en el canal `log`; `debug` emite
+  por `console.debug`. La redacción de secretos y el formato `[{context}]` se preservan exactamente.
+
 ```typescript
 // libs/shared/infrastructure/server/src/logging/app-logger.service.ts
 import { Injectable, LoggerService } from '@nestjs/common';
+import { Logger } from '@monorepo/shared/domain';
 
 @Injectable()
-export class AppLoggerService implements LoggerService {
-  private static readonly REDACTED_KEYS = ['password', 'token', 'authorization', 'secret', 'credit_card'];
+export class AppLoggerService implements Logger, LoggerService {
+  private static readonly REDACTED_KEYS = [
+    'password',
+    'token',
+    'authorization',
+    'secret',
+    'credit_card',
+  ];
 
   constructor(private readonly context: string) {}
 
-  log(message: string, data?: Record<string, unknown>): void {
-    console.log(`[${this.context}] ${message}`, data ? this.redact(data) : '');
+  log(message: string, ...optionalParams: unknown[]): void {
+    console.log(
+      `[${this.context}] ${message}`,
+      ...this.formatParams(optionalParams),
+    );
   }
 
-  error(message: string, error?: unknown): void {
-    console.error(`[${this.context}] ${message}`, error instanceof Error ? error.stack : error);
+  info(message: string, ...optionalParams: unknown[]): void {
+    this.log(message, ...optionalParams);
   }
 
-  warn(message: string, data?: Record<string, unknown>): void {
-    console.warn(`[${this.context}] ${message}`, data ? this.redact(data) : '');
+  warn(message: string, ...optionalParams: unknown[]): void {
+    console.warn(
+      `[${this.context}] ${message}`,
+      ...this.formatParams(optionalParams),
+    );
   }
 
-  private redact(data: Record<string, unknown>): Record<string, unknown> {
-    const redacted = { ...data };
+  error(message: string, ...optionalParams: unknown[]): void {
+    console.error(
+      `[${this.context}] ${message}`,
+      ...this.formatErrorParams(optionalParams),
+    );
+  }
+
+  debug(message: string, ...optionalParams: unknown[]): void {
+    console.debug(
+      `[${this.context}] ${message}`,
+      ...this.formatParams(optionalParams),
+    );
+  }
+
+  private formatParams(optionalParams: unknown[]): unknown[] {
+    if (optionalParams.length === 0) return [''];
+    return [this.redact(optionalParams[0])];
+  }
+
+  private formatErrorParams(optionalParams: unknown[]): unknown[] {
+    if (optionalParams.length === 0) return [];
+    const [first, ...rest] = optionalParams;
+    const formatted = first instanceof Error ? first.stack : first;
+    if (rest.length === 0) return [formatted];
+    return [formatted, this.redact(rest[0])];
+  }
+
+  private redact(data: unknown): unknown {
+    if (!this.isRecord(data)) return data;
+    const redacted: Record<string, unknown> = { ...data };
     for (const key of Object.keys(redacted)) {
-      if (AppLoggerService.REDACTED_KEYS.some(k => key.toLowerCase().includes(k))) {
+      if (
+        AppLoggerService.REDACTED_KEYS.some((k) =>
+          key.toLowerCase().includes(k),
+        )
+      ) {
         redacted[key] = '[REDACTED]';
       }
     }
     return redacted;
+  }
+
+  private isRecord(data: unknown): data is Record<string, unknown> {
+    return typeof data === 'object' && data !== null && !Array.isArray(data);
   }
 }
 ```
@@ -248,12 +309,16 @@ export class AppLoggerService implements LoggerService {
 
 ```typescript
 // libs/shared/infrastructure/server/src/bus/command/command-handlers-information.ts
-import { CommandHandler } from '@monorepo/shared/application';
+import {
+  Command,
+  CommandHandler,
+  CommandNotRegisteredError,
+} from '@monorepo/shared/application';
 
 export class CommandHandlersInformation {
-  private readonly handlers: Map<string, CommandHandler<any>>;
+  private readonly handlers: Map<string, CommandHandler<Command>>;
 
-  constructor(handlers: CommandHandler<any>[]) {
+  constructor(handlers: CommandHandler<Command>[]) {
     this.handlers = new Map();
     for (const handler of handlers) {
       const commandClass = handler.subscribedTo();
@@ -261,10 +326,10 @@ export class CommandHandlersInformation {
     }
   }
 
-  search(commandName: string): CommandHandler<any> {
+  search(commandName: string): CommandHandler<Command> {
     const handler = this.handlers.get(commandName);
     if (!handler) {
-      throw new Error(`No handler registered for command: ${commandName}`);
+      throw new CommandNotRegisteredError(commandName);
     }
     return handler;
   }
@@ -287,12 +352,17 @@ export class InMemoryCommandBus implements CommandBus {
 }
 
 // libs/shared/infrastructure/server/src/bus/query/query-handlers-information.ts
-import { QueryHandler } from '@monorepo/shared/application';
+import {
+  Query,
+  QueryHandler,
+  Response,
+  QueryNotRegisteredError,
+} from '@monorepo/shared/application';
 
 export class QueryHandlersInformation {
-  private readonly handlers: Map<string, QueryHandler<any, any>>;
+  private readonly handlers: Map<string, QueryHandler<Query, Response>>;
 
-  constructor(handlers: QueryHandler<any, any>[]) {
+  constructor(handlers: QueryHandler<Query, Response>[]) {
     this.handlers = new Map();
     for (const handler of handlers) {
       const queryClass = handler.subscribedTo();
@@ -300,9 +370,11 @@ export class QueryHandlersInformation {
     }
   }
 
-  search(queryName: string): QueryHandler<any, any> {
+  search(queryName: string): QueryHandler<Query, Response> {
     const handler = this.handlers.get(queryName);
-    if (!handler) throw new Error(`No handler for query: ${queryName}`);
+    if (!handler) {
+      throw new QueryNotRegisteredError(queryName);
+    }
     return handler;
   }
 }

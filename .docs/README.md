@@ -9,21 +9,21 @@ Define el mapa de documentación y las directrices obligatorias antes de crear o
 
 Si vas a escribir código o realizar cambios en este repositorio, debés seguir este protocolo:
 
-1. **Regla "Issue-First" Obligatoria:** Prohibido crear ramas o escribir código sin un Issue previo en GitLab
-   (ver [`governance_gitflow.md`](./governance_gitflow.md)). Todo MR y su squash commit debe referenciar `Closes #<id_issue>` en la descripción (no en cada commit atómico).
+1. **Regla "Issue-First" Obligatoria:** Prohibido crear ramas o escribir código sin un Issue previo en GitHub
+   (ver [`governance_gitflow.md`](./governance_gitflow.md)). Todo PR y su squash commit debe referenciar `Closes #<id_issue>` en la descripción (no en cada commit atómico).
 2. **Identificá la Capa y el Bounded Context:** Determiná si tu tarea corresponde a `domain`, `application`,
    `infrastructure/server`, `infrastructure/client`, `ui` o `testing`.
 3. **Consultá el Archivo Específico:** Abrí y leé **únicamente** la especificación técnica asociada a tu tarea en la
    [Matriz de Enrutamiento](#2-matriz-de-enrutamiento-tarea--documento).
 4. **Cumplí las Restricciones Arquitectónicas:**
-   * **Cero decoradores de NestJS (`@Injectable`)** en `domain/` y `application/`.
-   * **Cero dependencias de Node.js / TypeORM** en `ui/` o `infrastructure/client/`.
-   * **Invariantes en Value Objects** e instanciación de agregados mediante `create()` o `fromPrimitives()`.
-   * **Tags de Nx obligatorios** en `project.json` (ver [`governance_nx_boundaries.md`](./governance_nx_boundaries.md)).
-   * **Nomenclatura GitFlow:** Ramas `feature/<id>-<kebab>`, `bugfix/<id>-<kebab>`, `hotfix/<id>-<kebab>`.
-   * **Regla "1 Acción = 1 Permiso Dedicado (Enum)":** Cada acción de backend valida su propio `case` de enum en su DTO (class-validator/zod) + @UseGuards(ActionPermissionGuard) y en frontend cada componente interactivo se gobierna con el mismo enum para eliminar falsos positivos.
-   * **Colección Bruno Obligatoria (`rest-client/api/`):** Todo endpoint creado o modificado debe tener su archivo `.bru` con bloque `docs` en Markdown.
-   * **Pre-Push Gates Obligatorios:** Linter limpio (0 variables/imports sin usar), chequeo de tipos (`tsc -b`) y 100% de tests en verde antes de hacer push.
+   - **Cero decoradores de NestJS (`@Injectable`)** en `domain/` y `application/`.
+   - **Cero dependencias de Node.js / TypeORM** en `ui/` o `infrastructure/client/`.
+   - **Invariantes en Value Objects** e instanciación de agregados mediante `create()` o `fromPrimitives()`.
+   - **Tags de Nx obligatorios** en `project.json` (ver [`governance_nx_boundaries.md`](./governance_nx_boundaries.md)).
+   - **Nomenclatura GitFlow:** Ramas `feature/<id>-<kebab>`, `bugfix/<id>-<kebab>`, `hotfix/<id>-<kebab>`.
+   - **Regla "1 Acción = 1 Permiso Dedicado (Enum)":** Cada acción de backend valida su propio `case` de enum en su DTO (class-validator/zod) + @UseGuards(ActionPermissionGuard) y en frontend cada componente interactivo se gobierna con el mismo enum para eliminar falsos positivos.
+   - **Colección Bruno Obligatoria (`rest-client/api/`):** Todo endpoint creado o modificado debe tener su archivo `.bru` con bloque `docs` en Markdown.
+   - **Pre-Push Gates Obligatorios:** Linter limpio (0 variables/imports sin usar), chequeo de tipos (`tsc -b`) y 100% de tests en verde antes de hacer push. Se ejecutan automáticamente vía Husky: `npx nx run-many -t lint typecheck test`.
 
 ---
 
